@@ -2,63 +2,132 @@
 <html lang="fr">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark light">
+<meta name="theme-color" content="#0D0D0F">
 <title>Krypty</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
+<!-- ─────────── Onboarding ─────────── -->
 <section id="onboard" hidden>
   <div class="ob">
-    <div class="logo"></div>
+    <div class="ob-logo" id="ob-logo" aria-hidden="true">K</div>
     <h1>Krypty</h1>
     <p class="tagline">La messagerie qui ne sait pas que vous existez.</p>
-    <p class="sub">Aucun compte. Aucun serveur qui garde un nom. Votre identité est une clé créée ici, connue seulement de vos contacts.</p>
-    <label>Comment vos contacts vous verront</label>
-    <input id="ob-name" maxlength="24" placeholder="ex : Nyx" autocomplete="off">
-    <button id="ob-go" class="primary">Créer mon identité →</button>
-    <p class="fine">Un tag à 4 caractères dérivé de votre clé sera ajouté (ex : Nyx#7F3A). Rien n'est envoyé nulle part.</p>
+    <p class="sub">Pas de compte, pas de numéro, pas d'annuaire. Votre identité est une clé créée sur cet appareil, connue seulement des personnes que vous invitez.</p>
+
+    <label for="ob-name">Nom affiché chez vos contacts</label>
+    <input id="ob-name" maxlength="24" placeholder="ex : Nyx" autocomplete="off" autofocus>
+    <label>Couleur</label>
+    <div class="swatches" id="ob-colors" role="radiogroup" aria-label="Couleur de l'avatar"></div>
+
+    <button id="ob-go" class="primary big">Créer mon identité</button>
+    <p class="fine">Un tag à 4 caractères dérivé de votre clé sera ajouté (ex : <b>Nyx#7F3A</b>). Rien n'est envoyé nulle part.</p>
+    <p class="fine"><a href="#" id="ob-import">J'ai déjà une identité → restaurer une sauvegarde</a></p>
   </div>
 </section>
 
+<!-- ─────────── Application ─────────── -->
 <section id="app" hidden>
-  <aside>
-    <header>
-      <div class="me"><span id="me-name">—</span><span class="mini">c'est vous</span></div>
-      <button id="btn-invite" class="primary small">＋ Inviter</button>
+  <aside id="side">
+    <header class="side-head">
+      <button class="me" id="btn-settings" title="Réglages">
+        <span class="av" id="me-av">?</span>
+        <span class="me-txt"><b id="me-name">—</b><small>Réglages · sauvegarde</small></span>
+      </button>
+      <button id="btn-invite" class="primary small" title="Inviter quelqu'un dans ton cercle">＋ Inviter</button>
     </header>
-    <ul id="contacts"></ul>
-    <div class="panel">
-      <h3>Répondeurs <span class="mini">(le vôtre + ceux de votre cercle)</span></h3>
-      <ul id="relays" class="relays"></ul>
-      <div class="row"><input id="relay-url" placeholder="ws://ip-ou-nom:8765"><button id="relay-add" class="small">Ajouter</button></div>
-      <div class="row"><button id="btn-notif" class="small ghost">Notifications</button><button id="btn-wipe" class="small ghost danger">Tout effacer</button></div>
-    </div>
+    <div class="search"><input id="search" placeholder="Rechercher un contact" autocomplete="off"></div>
+    <ul id="contacts" aria-label="Contacts"></ul>
+    <footer class="side-foot">
+      <span class="dot" id="relay-dot"></span><span id="relay-txt" class="mini">répondeur…</span>
+    </footer>
   </aside>
 
-  <main>
-    <header>
-      <div><div id="chat-title" class="title">—</div><div id="chat-sub" class="mini">choisis un contact</div></div>
-    </header>
-    <div id="messages"></div>
-    <footer>
-      <label class="attach" title="Fichier (tunnel direct requis)">📎<input id="file" type="file" hidden></label>
-      <textarea id="input" rows="1" placeholder="Message… (Entrée pour envoyer)"></textarea>
-      <button id="send" class="primary round" aria-label="Envoyer">➤</button>
-    </footer>
+  <main id="chat">
+    <div id="chat-empty" class="empty-main">
+      <div class="ob-logo small" aria-hidden="true">K</div>
+      <h2>Ton cercle est vide</h2>
+      <p>Invite quelqu'un : envoie-lui un lien par n'importe quel canal. Le lien contient tes clés publiques et une boîte d'accueil à usage unique.</p>
+      <div class="row center">
+        <button class="primary" id="empty-invite">＋ Créer une invitation</button>
+        <button id="empty-join">Coller un lien reçu</button>
+      </div>
+    </div>
+    <div id="chat-view" hidden>
+      <header class="chat-head">
+        <button id="btn-back" class="icon" aria-label="Retour" title="Retour">‹</button>
+        <span class="av" id="chat-av">?</span>
+        <div class="chat-title"><b id="chat-title">—</b><span id="chat-sub" class="mini">—</span></div>
+        <span id="chat-pill" class="pill"></span>
+      </header>
+      <div id="messages"></div>
+      <footer class="composer">
+        <label class="icon attach" id="attach" title="Envoyer un fichier (tunnel direct requis)">📎<input id="file" type="file" hidden></label>
+        <textarea id="input" rows="1" placeholder="Écrire… (Entrée pour envoyer, Maj+Entrée = retour)"></textarea>
+        <button id="send" class="primary round" aria-label="Envoyer">➤</button>
+      </footer>
+    </div>
   </main>
 
+  <!-- Inviter / Rejoindre -->
   <div id="invite" class="modal" hidden>
     <div class="box">
-      <h3>Inviter quelqu'un</h3>
-      <p class="mini">Ce lien contient vos clés publiques et une boîte d'accueil à usage unique. Envoyez-le par n'importe quel canal. Le <code>#</code> n'est jamais transmis à un serveur.</p>
-      <textarea id="invite-link" readonly rows="3"></textarea>
-      <h3>…ou rejoindre</h3>
-      <div class="row"><input id="paste" placeholder="Coller un lien d'invitation reçu"><button id="paste-go" class="small">Rejoindre</button></div>
-      <button id="invite-close" class="ghost">Fermer</button>
+      <div class="tabs" role="tablist">
+        <button class="tab active" data-tab="inv-make" role="tab">Inviter</button>
+        <button class="tab" data-tab="inv-join" role="tab">Rejoindre</button>
+        <button class="x" id="invite-close" aria-label="Fermer">✕</button>
+      </div>
+      <div id="inv-make" class="tabpane">
+        <p class="mini">Envoie ce lien à la personne (SMS, mail, Signal, papier…). Valable <b>une fois</b>. Ce qui suit le <code>#</code> ne quitte jamais le navigateur.</p>
+        <textarea id="invite-link" readonly rows="4" aria-label="Lien d'invitation"></textarea>
+        <div class="row"><button class="primary" id="invite-copy">Copier le lien</button><button id="invite-new">Nouveau lien</button></div>
+      </div>
+      <div id="inv-join" class="tabpane" hidden>
+        <p class="mini">Colle le lien reçu. Tu verras son nom et un numéro de sécurité à comparer avant d'accepter.</p>
+        <textarea id="paste" rows="4" placeholder="https://…/#i/…"></textarea>
+        <div class="row"><button class="primary" id="paste-go">Vérifier le lien</button></div>
+      </div>
     </div>
   </div>
-  <div id="toast"></div>
+
+  <!-- Confirmation d'ajout (numéro de sécurité) -->
+  <div id="accept" class="modal" hidden>
+    <div class="box">
+      <h3>Ajouter <span id="acc-name">—</span> ?</h3>
+      <p class="mini">Numéro de sécurité de votre paire. S'il est identique des deux côtés, personne n'est au milieu. Vous pourrez le revérifier plus tard.</p>
+      <pre id="acc-sn" class="sn"></pre>
+      <div class="row"><button class="primary" id="acc-ok">Ajouter à mon cercle</button><button id="acc-no">Annuler</button></div>
+    </div>
+  </div>
+
+  <!-- Réglages -->
+  <div id="settings" class="modal" hidden>
+    <div class="box">
+      <div class="tabs"><b class="grow">Réglages</b><button class="x" id="set-close" aria-label="Fermer">✕</button></div>
+      <h3>Identité</h3>
+      <div class="row"><input id="set-name" maxlength="24" placeholder="Nom affiché"><button id="set-name-ok" class="small">Renommer</button></div>
+      <div class="swatches" id="set-colors"></div>
+      <p class="mini">Tag : <b id="set-tag">—</b> · les contacts sont prévenus du changement de nom.</p>
+
+      <h3>Répondeurs <span class="mini">— où tes messages attendent quand tu es hors ligne</span></h3>
+      <ul id="relays" class="relays"></ul>
+      <div class="row"><input id="relay-url" placeholder="ws://ip-ou-nom:8765"><button id="relay-add" class="small">Ajouter</button></div>
+
+      <h3>Cet appareil</h3>
+      <div class="row wrap">
+        <button id="btn-notif" class="small">Activer les notifications</button>
+        <button id="btn-export" class="small">Exporter une sauvegarde</button>
+        <label class="small btn"><input id="import-file" type="file" accept=".krypty2" hidden>Restaurer une sauvegarde</label>
+        <button id="btn-wipe" class="small danger">Tout effacer</button>
+      </div>
+      <p class="mini">La sauvegarde (identité + contacts + messages) est chiffrée avec une phrase secrète. C'est le seul moyen de retrouver ton identité sur un autre appareil.</p>
+    </div>
+  </div>
+
+  <div id="toast" role="status" aria-live="polite"></div>
 </section>
 
 <script type="module" src="app.js"></script>

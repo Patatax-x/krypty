@@ -8,7 +8,7 @@ export class Relay {
   constructor(url, onBlob, onState) {
     this.url = url; this.onBlob = onBlob; this.onState = onState || (() => {});
     this.ws = null; this.nonce = null; this.subs = new Map(); // box -> {key, pub}
-    this.pendingSubs = new Set(); this.backoff = 1000; this.closed = false;
+    this.pendingPosts = []; this.backoff = 1000; this.closed = false;
     this.connect();
   }
   connect() {
@@ -27,6 +27,7 @@ export class Relay {
     if (m.op === "challenge") {
       this.nonce = b64u.dec(m.nonce.replace(/-/g, "+").replace(/_/g, "/"));
       for (const box of this.subs.keys()) await this.doSub(box);       // ré-abonnement après reconnexion
+      const q = this.pendingPosts.splice(0); for (const p of q) this.send({ op: "post", ...p });
     } else if (m.op === "msg") {
       const ok = await this.onBlob(this.url, m.box, m.mid, m.blob);   // true = traité → ack (suppression)
       if (ok) this.send({ op: "ack", mid: m.mid });
@@ -44,7 +45,13 @@ export class Relay {
     const sig = await edSign(key, msg);
     this.send({ op: "sub", box, pub: std(pub), sig: std(b64u.enc(sig)) });
   }
-  post(box, blob) { return this.send({ op: "post", box, blob }); }
+  // Un post vers un répondeur pas encore connecté (nouvelle URL trouvée dans une invitation, ou
+  // reconnexion en cours) est mis en attente et part à l'ouverture — sinon il était perdu en silence.
+  post(box, blob) {
+    if (this.open) return this.send({ op: "post", box, blob });
+    if (!this.closed && this.pendingPosts.length < 200) { this.pendingPosts.push({ box, blob }); return true; }
+    return false;
+  }
 }
 // le répondeur Python attend du base64 standard pour pub/sig
 const std = (s) => s.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - s.length % 4) % 4);

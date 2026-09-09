@@ -40,6 +40,20 @@ rendu du chat qui pouvait peindre un état périmé (garde de séquence) ; envoi
 mourant compté comme livré (→ tout reste en outbox jusqu'à l'ack, repost via répondeur après 8 s) ;
 `hello` de présence limité à 1 / 10 min par contact silencieux (sinon la boîte se remplissait).
 
+## Interface (2026-09-09, 2e passe)
+- Bug corrigé : `#onboard { display:grid }` l'emportait sur l'attribut `hidden` → les deux écrans
+  s'affichaient en même temps après « Créer mon identité ». Règle `[hidden]{display:none!important}`.
+- Onboarding : nom + couleur d'avatar, lien « restaurer une sauvegarde ». App : liste de contacts avec
+  aperçu du dernier message, badge non-lus, recherche ; en-tête de conversation avec pastille
+  d'état (hors ligne / en ligne / tunnel direct) ; séparateurs de jour ; modale Inviter/Rejoindre ;
+  modale d'acceptation avec numéro de sécurité (plus de `confirm()`) ; Réglages (renommer, couleur,
+  répondeurs, notifications, **export/import de sauvegarde chiffrée `.krypty2`**, tout effacer).
+  Mobile : une colonne, bouton retour. Le changement de nom/couleur est diffusé aux contacts (`profile`).
+- Protocole : `intro-ack` passe par l'outbox et est acquitté (avant : perdu si le répondeur de l'autre
+  n'était pas encore connecté) ; un `post` vers un répondeur pas encore ouvert est mis en file ;
+  `relay.py` écoute en IPv4+IPv6 (`ws://localhost` mettait ~9 s à cause de `::1`).
+- Publication : voir `DEPLOY.md` (dépôt public + GitHub Pages, app servie depuis `web/`, doc dans `docs/`).
+
 ## Pas encore fait
 - Porteurs (« le cercle est le relais ») : `addRelay` + carte `card` existent, mais pas le dépôt chez
   un contact tiers ni le partage de secret (Shamir). Le répondeur Python reste le seul relais.

@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Krypty — messagerie chiffrée sans compte, sans annuaire, sans serveur qui garde vos messages. Le cercle est le relais.">
+<title>Krypty — Documentation</title>
+<style>
+:root { --bg:#0D0D0F; --surface:#161618; --border:#29292D; --accent:#30D158; --accent-ink:#062A12; --text:#F2F2F2; --dim:#A8ADA9; --muted:#73737A; --code:#1C1C1F; }
+@media (prefers-color-scheme: light) { :root { --bg:#F3F5F2; --surface:#FFFFFF; --border:#D8DED7; --accent:#1E9E45; --accent-ink:#fff; --text:#15181A; --dim:#4E5651; --muted:#7A827D; --code:#EEF1ED; } }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.6 "Segoe UI", system-ui, sans-serif; }
+header { padding: 56px 20px 40px; text-align: center; border-bottom: 1px solid var(--border); background: var(--surface); }
+.logo { width: 64px; height: 64px; border-radius: 18px; background: var(--accent); color: var(--accent-ink); margin: 0 auto 12px; display: grid; place-items: center; font-weight: 800; font-size: 30px; position: relative; }
+.logo::after { content: ""; position: absolute; left: 14px; bottom: -9px; border: 9px solid transparent; border-top-color: var(--accent); border-left-color: var(--accent); }
+h1 { margin: 0; font-size: 36px; letter-spacing: -.02em; }
+.tag { font-size: 20px; font-weight: 600; margin: 6px 0 14px; }
+.cta { display: inline-flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+.cta a { text-decoration: none; padding: 11px 18px; border-radius: 12px; border: 1px solid var(--border); color: var(--text); background: var(--bg); font-weight: 600; }
+.cta a.p { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+main { max-width: 760px; margin: 0 auto; padding: 24px 20px 80px; }
+h2 { font-size: 22px; margin: 40px 0 10px; letter-spacing: -.01em; }
+h3 { font-size: 15px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 24px 0 6px; }
+p, li { color: var(--dim); }
+p b, li b { color: var(--text); }
+pre, code { font-family: Consolas, "Cascadia Mono", monospace; font-size: 13px; }
+pre { background: var(--code); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; overflow-x: auto; }
+code { background: var(--code); padding: 1px 5px; border-radius: 5px; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+td, th { border-bottom: 1px solid var(--border); padding: 8px 6px; text-align: left; vertical-align: top; }
+th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 14px 16px; }
+.card b { display: block; margin-bottom: 4px; color: var(--text); }
+.card p { margin: 0; font-size: 14px; }
+.diagram { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 16px; overflow-x: auto; }
+.diagram pre { background: transparent; border: 0; padding: 0; margin: 0; color: var(--text); line-height: 1.45; }
+footer { text-align: center; color: var(--muted); font-size: 13px; padding: 20px; border-top: 1px solid var(--border); }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">K</div>
+  <h1>Krypty</h1>
+  <p class="tag">La messagerie qui ne sait pas que vous existez.</p>
+  <div class="cta"><a class="p" href="../web/">Ouvrir l'application</a><a href="https://github.com/">Code source</a></div>
+</header>
+<main>
+
+<h2>Pourquoi</h2>
+<p>Une messagerie classique connaît votre numéro, votre liste de contacts, l'heure de chaque message et souvent leur contenu.
+Krypty part du principe inverse : <b>aucune machine n'a besoin de savoir que vous existez</b> pour que vos messages arrivent.</p>
+<div class="grid">
+  <div class="card"><b>Pas de compte</b><p>Votre identité est une paire de clés créée sur votre appareil. Pas de numéro, pas de mail, pas de mot de passe.</p></div>
+  <div class="card"><b>Pas d'annuaire</b><p>On ne vous « trouve » pas. Vous invitez quelqu'un avec un lien à usage unique, envoyé par le canal de votre choix.</p></div>
+  <div class="card"><b>Pas de serveur central</b><p>Quand deux personnes sont en ligne, elles se parlent en direct. Sinon, le message chiffré attend dans un « répondeur » que n'importe qui peut héberger.</p></div>
+  <div class="card"><b>Le cercle est le relais</b><p>Votre répondeur peut tourner chez vous, chez un ami, sur un Raspberry. Le réseau, c'est vos contacts.</p></div>
+</div>
+
+<h2>Comment ça marche</h2>
+<div class="diagram"><pre>
+  Alice                          Répondeur (aveugle)                        Bob
+  ─────                          ───────────────────                        ───
+  lien #i/… ─── n'importe quel canal (SMS, mail, papier) ───────────────────▶ colle
+                                                                             │ vérifie la signature
+                                                                             │ numéro de sécurité
+                        ◀── intro chiffrée dans la boîte d'accueil ──────────┘
+  crée le contact
+  intro‑ack chiffré ──▶ boîte de Bob ───────────────────────────────────────▶ contact prêt
+
+  message ✓ ─────────▶ boîte de Bob (blob opaque, id aléatoire) ───────────▶ lu → ack → effacé ✓✓
+  ⚡ tunnel direct (WebRTC) ◀════════════════════════════════════════════════▶ fichiers, sans limite
+</pre></div>
+<p>Le répondeur ne voit que des <b>identifiants de boîtes aléatoires</b> et des <b>blobs chiffrés</b>. Il ne sait ni qui écrit, ni qui lit,
+ni ce qui est écrit. Il efface chaque blob à la lecture, ou après 15 jours.</p>
+
+<h3>Chiffrement</h3>
+<table>
+<tr><th>Quoi</th><th>Comment</th></tr>
+<tr><td>Identité</td><td>X25519 (échange de clés) + Ed25519 (signature), générées par le navigateur (WebCrypto), jamais exportées sauf dans votre sauvegarde chiffrée.</td></tr>
+<tr><td>Clé de conversation</td><td>HKDF‑SHA256(X25519(moi, lui)) → AES‑256‑GCM. Dérivée localement des deux côtés, jamais transmise.</td></tr>
+<tr><td>Invitation</td><td>Clés publiques + boîte d'accueil, signées Ed25519. Un lien modifié est refusé.</td></tr>
+<tr><td>Lecture des boîtes</td><td>Chaque boîte a sa propre clé Ed25519 ; le répondeur exige une signature d'un nonce pour la lire. Poster ne demande rien.</td></tr>
+<tr><td>Numéro de sécurité</td><td>60 chiffres dérivés des deux clés publiques — identique des deux côtés si personne n'est au milieu.</td></tr>
+<tr><td>Sauvegarde</td><td>AES‑256‑GCM, clé dérivée d'une phrase secrète (PBKDF2 300 000 itérations).</td></tr>
+</table>
+
+<h2>Utiliser</h2>
+<h3>Dans le navigateur</h3>
+<ol>
+<li>Ouvrir l'application, choisir un nom et une couleur. Un tag (<code>Nyx#7F3A</code>) est dérivé de votre clé.</li>
+<li><b>＋ Inviter</b> → copier le lien → l'envoyer. L'autre le colle dans <b>Rejoindre</b>, compare le numéro de sécurité, accepte.</li>
+<li>Écrire. ⏳ en attente d'un répondeur · ✓ déposé · ✓✓ lu · ⚡ passé en direct.</li>
+</ol>
+<h3>Héberger un répondeur (optionnel, ~100 lignes de Python)</h3>
+<pre>pip install websockets cryptography
+python relay.py 8765</pre>
+<p>Puis dans l'app : Réglages → Répondeurs → <code>ws://localhost:8765</code>. Vos contacts sont prévenus automatiquement et
+déposeront aussi chez vous. Depuis une page en <code>https://</code>, seuls <code>localhost</code> et les <code>wss://</code> sont acceptés
+par le navigateur (voir <code>DEPLOY.md</code> pour un tunnel gratuit).</p>
+
+<h2>Limites connues (honnêtement)</h2>
+<ul>
+<li><b>Une identité = un appareil</b>, sauf si vous exportez une sauvegarde et la restaurez ailleurs. Deux appareils actifs en même temps se partagent les messages sans se synchroniser : le premier qui lit efface.</li>
+<li><b>Pas de forward secrecy</b> pour l'instant : la clé de paire est statique. Une clé privée volée déchiffre l'historique capturé.</li>
+<li><b>Un répondeur hostile</b> ne lit rien, mais peut jeter des blobs (déni de service) ou compter combien de blobs passent par une boîte. D'où plusieurs répondeurs par contact.</li>
+<li><b>Fichiers</b> : uniquement en direct (tunnel). Hors ligne, seuls les textes attendent.</li>
+<li><b>Pas de groupes</b> dans cette version.</li>
+<li>Perdre l'appareil sans sauvegarde = perdre l'identité. Les contacts devront vous ré‑inviter.</li>
+</ul>
+
+</main>
+<footer>Krypty 2 — prototype. Code source ouvert. Aucune télémétrie.</footer>
+</body>
+</html>

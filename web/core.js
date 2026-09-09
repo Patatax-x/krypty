@@ -115,3 +115,28 @@ export async function newBox(relay) {
   const k = await genEd25519();
   return { relay, box: b64u.enc(rand(24)), key: k.priv, pub: b64u.enc(k.pub) };
 }
+
+// ── Sauvegarde chiffrée (.krypty2) : identité + contacts + relais + messages (sans les fichiers) ──
+// Format : "KRYPTY2" ‖ salt16 ‖ iv12 ‖ AES-GCM(PBKDF2-SHA256(pass, 300k), JSON)
+async function passKey(pass, salt) {
+  const base = await crypto.subtle.importKey("raw", te.encode(pass), "PBKDF2", false, ["deriveKey"]);
+  return crypto.subtle.deriveKey({ name: "PBKDF2", hash: "SHA-256", salt, iterations: 300000 }, base, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
+}
+export async function exportBackup(pass) {
+  const data = { v: 1, at: Date.now(), me: await kv.get("me"), relays: await kv.get("relays"), welcome: await kv.get("welcome"),
+    contacts: await store.all("contacts"), messages: (await store.all("messages")).map(m => { const { blob, ...r } = m; return r; }) };
+  const salt = rand(16), iv = rand(12), key = await passKey(pass, salt);
+  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, te.encode(JSON.stringify(data))));
+  return new Blob([te.encode("KRYPTY2"), salt, iv, ct], { type: "application/octet-stream" });
+}
+export async function importBackup(file, pass) {
+  const u8 = new Uint8Array(await file.arrayBuffer());
+  if (td.decode(u8.slice(0, 7)) !== "KRYPTY2") throw new Error("bad-format");
+  const key = await passKey(pass, u8.slice(7, 23));
+  let data; try { data = JSON.parse(td.decode(await crypto.subtle.decrypt({ name: "AES-GCM", iv: u8.slice(23, 35) }, key, u8.slice(35)))); } catch { throw new Error("bad-pass"); }
+  if (!data.me || !data.me.x) throw new Error("bad-format");
+  await kv.set("me", data.me); if (data.relays) await kv.set("relays", data.relays); if (data.welcome) await kv.set("welcome", data.welcome);
+  for (const c of data.contacts || []) await store.put("contacts", c);
+  for (const m of data.messages || []) if (!(await store.get("messages", m.id))) await store.put("messages", m);
+}
+export function wipe() { return new Promise((res) => { if (_db) _db.close(); _db = null; const r = indexedDB.deleteDatabase(DB); r.onsuccess = r.onerror = r.onblocked = () => res(); }); }

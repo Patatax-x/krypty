@@ -95,8 +95,8 @@ async def main(port):
     async def purger():
         while True: await asyncio.sleep(60); purge()
     asyncio.create_task(purger())
-    async with websockets.serve(handle, "0.0.0.0", port, max_size=MAX_BLOB * 2):
-        print(f"krypty-relay prototype sur ws://0.0.0.0:{port} — TTL {TTL_S // 86400} j, blob ≤ {MAX_BLOB // 1024} Ko")
+    async with websockets.serve(handle, None, port, max_size=MAX_BLOB * 2):   # None = IPv4 + IPv6 (sinon ws://localhost attend ::1 ~9 s avant de retomber sur 127.0.0.1)
+        print(f"krypty-relay prototype sur ws://*:{port} — TTL {TTL_S // 86400} j, blob ≤ {MAX_BLOB // 1024} Ko")
         await asyncio.Future()
 
 if __name__ == "__main__":
