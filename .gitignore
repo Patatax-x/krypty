@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+*.krypty2
+node_modules/
+.wrangler/
+.DS_Store
+Thumbs.db

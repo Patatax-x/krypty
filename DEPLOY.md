@@ -1,86 +1,60 @@
-# Publier Krypty 2 — nouveau dépôt + site public (GitHub Pages)
+# Publier Krypty : dépôt GitHub + site (GitHub Pages)
 
-Objectif : un dépôt public `krypty` qui contient l'app, le répondeur et la doc ; le site
-`https://<toi>.github.io/krypty/` sert **l'app elle-même** (dossier `web/`) et la doc (`docs/`).
-Aucun serveur à payer : Pages héberge du statique, les répondeurs tournent chez les utilisateurs.
+Le dépôt public `Patatax-x/krypty` contient uniquement ce dossier. Le site
+`https://patatax-x.github.io/krypty/` sert la documentation (`docs/`) et **l'application elle-même**
+(`web/`). Pages héberge du statique, gratuitement ; les points de rendez-vous et les porteurs sont
+ailleurs (chez les utilisateurs, ou un Worker Cloudflare gratuit).
 
-## 0. Ce qui part, ce qui ne part pas
+## Ce qui part, ce qui ne part jamais
 
-| Part dans le dépôt public | Ne part **jamais** |
+| Publié | Jamais publié |
 |---|---|
-| `web/` (app), `relay.py`, `serve.py`, `docs/`, `README.md`, `DEPLOY.md`, `LICENSE` | `~/.krypty/*.pem` (clé de signature v1), `settings.json`, `history.json`, sauvegardes `.krypty2`, tout l'ancien `app/` v1 (Firebase URL + passphrase legacy en clair) |
+| `web/`, `relay.py`, `relay-worker/`, `serve.py`, `docs/`, `README.md`, `LICENSE`, `SECURITY.md` | l'app v1 (`app/`, URL Firebase, passphrase legacy), clés de signature, `settings.json`, sauvegardes `.krypty2` |
 
-> Le dépôt actuel `Krypty/` contient l'app v1 avec l'URL Firebase et la passphrase legacy dans `app.py`.
-> On ne publie **que** `krypty2/` dans un dépôt neuf — pas d'historique git à nettoyer.
+Le dépôt de travail `Krypty/` contient la v1 : on publie une **branche extraite** de `krypty2/` seulement,
+sans réécrire d'historique.
 
-## 1. Créer le dépôt (une fois)
-
-```bash
-cd E:/Code/Projet/Concret/App/Krypty/krypty2
-git init -b main
-printf '__pycache__/\n*.krypty2\n.DS_Store\n' > .gitignore
-touch .nojekyll                      # Pages sert les fichiers tels quels (pas de build Jekyll)
-git add . && git -c user.name="Morgan" -c user.email="morgan.bouchon@gmail.com" commit -m "Krypty 2 — première publication"
-gh repo create krypty --public --source=. --remote=origin --push \
-   --description "La messagerie qui ne sait pas que vous existez."
-```
-
-Sans `gh` : créer le dépôt vide sur github.com, puis
-`git remote add origin https://github.com/<toi>/krypty.git && git push -u origin main`.
-
-## 2. Activer GitHub Pages (une fois)
+## Première publication (fait le 2026-09-09)
 
 ```bash
-gh api -X POST repos/<toi>/krypty/pages -f build_type=legacy -f 'source[branch]=main' -f 'source[path]=/'
+cd E:/Code/Projet/Concret/App/Krypty
+git subtree split --prefix=krypty2 -b krypty-public          # historique de krypty2/ uniquement
+curl -X POST https://api.github.com/user/repos -H "Authorization: token $GH" \
+     -d '{"name":"krypty","description":"La messagerie qui ne sait pas que vous existez.","homepage":"https://patatax-x.github.io/krypty/"}'
+git push https://github.com/Patatax-x/krypty.git krypty-public:main
+curl -X POST https://api.github.com/repos/Patatax-x/krypty/pages -H "Authorization: token $GH" \
+     -d '{"source":{"branch":"main","path":"/"}}'
 ```
-ou : **Settings → Pages → Source : Deploy from a branch → `main` / `/ (root)`**.
+`$GH` est le jeton du gestionnaire d'identifiants Git (`git credential fill`). Avec `gh` :
+`gh repo create krypty --public` puis `gh api -X POST repos/Patatax-x/krypty/pages -f 'source[branch]=main' -f 'source[path]=/'`.
 
-Résultat, 1 à 2 min plus tard :
-- `https://<toi>.github.io/krypty/` → page d'accueil / doc (`index.html` racine, redirige vers `docs/`)
-- `https://<toi>.github.io/krypty/web/` → **l'application**
-- `https://<toi>.github.io/krypty/docs/` → documentation
-
-## 3. Mettre à jour (à chaque changement)
+## Mettre à jour
 
 ```bash
-cd E:/Code/Projet/Concret/App/Krypty/krypty2
-git add -A && git commit -m "web : <quoi>" && git push
+cd E:/Code/Projet/Concret/App/Krypty
+git add krypty2 && git commit -m "krypty2 : ..."
+git subtree split --prefix=krypty2 -b krypty-public
+git push https://github.com/Patatax-x/krypty.git krypty-public:main
 ```
-Pages se redéploie tout seul (~1 min). Pas de cache à vider : les modules ES sont servis avec ETag,
-et l'app n'a pas de service worker pour l'instant.
+Pages se redéploie seul en une à deux minutes. Pas de cache à vider : pas de service worker.
 
-## 4. HTTPS ↔ répondeur : la règle à connaître
+## Le point à connaître : https et WebSocket
 
-Une page servie en `https://` ne peut ouvrir que des `wss://` (WebSocket chiffré)… **sauf vers
-`localhost` / `127.0.0.1`**, que les navigateurs considèrent sûrs. Donc :
+Une page servie en `https://` n'ouvre que des `wss://`, sauf vers `localhost` / `127.0.0.1`.
 
-| Répondeur | Depuis la version Pages (https) | Depuis `serve.py` local (http) |
+| Point de rendez-vous | Depuis le site (https) | Depuis `serve.py` (http local) |
 |---|---|---|
-| `ws://localhost:8765` (sur le PC de l'utilisateur) | ✅ | ✅ |
-| `ws://192.168.x.x:8765` (autre PC du LAN) | ❌ bloqué (mixed content) | ✅ |
-| `wss://mon-domaine:8765` (TLS) | ✅ | ✅ |
+| `ws://localhost:8765` sur le PC de l'utilisateur | oui | oui |
+| `ws://192.168.x.x:8765` sur un autre PC du LAN | non (mixed content) | oui |
+| `wss://…` (Worker Cloudflare, Caddy, tunnel) | oui | oui |
 
-Pour un répondeur joignable depuis Internet en `wss://`, deux options gratuites :
-1. **Caddy** devant `relay.py` (certificat Let's Encrypt automatique, 3 lignes de config) :
-   ```
-   relais.mondomaine.fr { reverse_proxy localhost:8765 }
-   ```
-2. **Tunnel Cloudflare** (`cloudflared tunnel --url ws://localhost:8765`) — donne une URL `wss://…trycloudflare.com`
-   sans ouvrir de port. Un tiers voit passer des blobs chiffrés et des ids de boîtes, rien d'autre.
+Pour que deux personnes se trouvent depuis le site sans rien installer, il faut un `wss://` public.
+`relay-worker/` en déploie un gratuitement (`wrangler deploy`), et son URL peut devenir le rendez-vous
+par défaut (`BOOTSTRAP_RELAYS` dans `web/app.js`). Une fois reliés, les contacts se portent entre eux.
 
-À terme : l'app de bureau (Tauri/pywebview) embarquera `relay.py` et l'exposera en `ws://localhost`,
-donc **zéro configuration** pour l'utilisateur de bureau ; le navigateur seul utilise le répondeur d'un
-contact du cercle.
+## Vérifier après publication
 
-## 5. Vérification après publication
-
-1. Ouvrir `https://<toi>.github.io/krypty/web/` dans deux navigateurs différents (ou normal + privé).
-2. Lancer `py -3.14 relay.py 8765` sur le PC ; dans l'app, Réglages → Répondeurs → `ws://localhost:8765`.
-3. Inviter A → coller chez B → numéro de sécurité identique → message ✓✓ → ⚡ tunnel.
-4. Fermer B, écrire depuis A (✓), rouvrir B (✓✓).
-
-## 6. Licence et signalement
-
-- Ajouter `LICENSE` (MIT ou AGPL-3.0 si tu veux que les forks restent ouverts).
-- `SECURITY.md` : « signaler une faille par invitation Krypty à … » est cohérent avec le produit, mais
-  garder aussi un mail — un chercheur n'a pas encore de client.
+1. `https://patatax-x.github.io/krypty/web/` dans deux navigateurs (ou normal + privé).
+2. Réglages, Avancé : ajouter un `wss://` (Worker) ou `ws://localhost:8765` si `relay.py` tourne ici.
+3. Inviter sur A, coller sur B, Ajouter. Message ✓✓, puis ⚡ en direct.
+4. Fermer B, écrire depuis A, rouvrir B.

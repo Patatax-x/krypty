@@ -45,7 +45,8 @@ async function start() {
   for (const url of S.relays) S.pool.get(url);
   await subscribeAll();
   // Reprise : ré-enregistrer les boîtes d'accueil encore valables
-  const w = (await C.kv.get("welcome")) || [];
+  const w = ((await C.kv.get("welcome")) || []).filter(b => Date.now() - (b.created || 0) < 7 * 86400000);
+  await C.kv.set("welcome", w);
   for (const b of w) { S.welcome.set(b.box, b); S.pool.get(b.relay).subscribe(b.box, b.key, b.pub); }
   await pickCarriers(false);
   renderAll();
@@ -75,6 +76,12 @@ async function pickCarriers(announce = true) {
   await subscribeAll(); renderContacts();
   if (announce) for (const c of S.contacts.values()) if (!c.pending) sendTo(c, { t: "card", inbox: myCard(c) });
 }
+// Une carte reçue vient d'un contact authentifié, mais on borne quand même sa forme.
+function sanitizeCard(card) {
+  if (!Array.isArray(card)) return [];
+  return card.filter(o => o && typeof o.relay === "string" && typeof o.box === "string" && o.relay.length < 200 && o.box.length < 64).slice(0, 12).map(o => ({ relay: o.relay, box: o.box }));
+}
+function myProfile() { return { t: "profile", name: S.me.name, color: S.me.color, photo: S.me.photo || null, pv: S.me.pv || 0 }; }
 // Ma carte pour un contact : ses boîtes chez mes répondeurs WebSocket + mes boîtes chez mes porteurs
 function myCard(c) {
   return [...c.inbox.map(b => ({ relay: b.relay, box: b.box })), ...S.carriers.filter(cid => S.me.pickups[cid]).map(cid => ({ relay: "peer:" + cid, box: S.me.pickups[cid].box }))];
@@ -124,19 +131,26 @@ async function dispatch(c, env, via) {
   } else if (env.t === "hello") {
     if (Date.now() - env.ts > 120000) return;            // hello périmé (resté au répondeur)
     S.presence.set(c.id, Date.now());
-    if (Array.isArray(env.card) && env.card.length) { c.outbox = env.card; await C.store.put("contacts", c); }
-    if (!env.reply) sendTo(c, { t: "hello", ts: Date.now(), reply: true, card: myCard(c) });
+    const card = sanitizeCard(env.card); if (card.length) c.outbox = card;
+    if (typeof env.name === "string") c.name = env.name.slice(0, 24); if (typeof env.color === "string") c.color = env.color.slice(0, 9);
+    if (env.pv && env.pv !== c.pv) sendTo(c, { t: "profile-req" });     // photo changée pendant mon absence
+    await C.store.put("contacts", c);
+    if (!env.reply) sendTo(c, { t: "hello", ts: Date.now(), reply: true, card: myCard(c), name: S.me.name, color: S.me.color, pv: S.me.pv || 0 });
     maybeLink(c);
     renderContacts();
+  } else if (env.t === "profile-req") {
+    sendTo(c, myProfile());
   } else if (env.t === "profile") {         // nom / couleur / photo changés
-    if (env.name) c.name = String(env.name).slice(0, 24); if (env.color) c.color = env.color;
+    if (typeof env.name === "string") c.name = env.name.slice(0, 24); if (typeof env.color === "string") c.color = env.color.slice(0, 9);
     if ("photo" in env) c.photo = (typeof env.photo === "string" && env.photo.startsWith("data:image/") && env.photo.length < 40000) ? env.photo : null;
+    c.pv = env.pv || c.pv;
     await C.store.put("contacts", c); renderContacts(); if (S.active === c.id) renderChat();
   } else if (env.t === "card") {           // le contact a changé ses boîtes / porteurs
-    c.outbox = env.inbox; await C.store.put("contacts", c);
+    const card = sanitizeCard(env.inbox); if (card.length) { c.outbox = card; await C.store.put("contacts", c); }
   } else if (env.t === "intro-ack") {      // fin de l'invitation côté acceptant
     const wasPending = c.pending;
-    c.name = env.name; c.epub = env.epub; c.outbox = env.inbox; c.pending = false; if (env.color) c.color = env.color; if (env.photo) c.photo = env.photo;
+    c.name = String(env.name || c.name).slice(0, 24); c.epub = env.epub; c.outbox = sanitizeCard(env.inbox); c.pending = false;
+    if (typeof env.color === "string") c.color = env.color.slice(0, 9); if (typeof env.photo === "string" && env.photo.startsWith("data:image/")) c.photo = env.photo;
     await C.store.put("contacts", c); if (env.id) sendTo(c, { t: "ack", ids: [env.id] });
     renderAll(); if (wasPending) { toast(`${c.name} est maintenant dans ton cercle`); flushOutbox(); pickCarriers(); }
   } else if (["offer", "answer", "ice"].includes(env.t)) {
@@ -146,27 +160,25 @@ async function dispatch(c, env, via) {
 }
 
 // ═══════════════════════ Envoi ═══════════════════════
-let _lastPosted = [];
 const SHORT = ["hello", "offer", "answer", "ice", "ack", "card", "profile"];   // pas de sens après quelques minutes → TTL court chez un porteur
 async function sendTo(c, env, skipRelays = []) {
   const ttl = SHORT.includes(env.t) ? 5 * 60 * 1000 : undefined;
   if (!env.id) env.id = C.uid();
   const key = await ensurePair(c);
   const blob = await C.seal(key, env);
-  const l = S.links.get(c.id);
-  _lastPosted = [];
-  if (l && l.open && l.send(blob)) return "direct";
+  const l = S.links.get(c.id), posted = [];
+  if (l && l.open && l.send(blob)) return { via: "direct", posted };
   // Le cercle d'abord : si un porteur (contact commun, tunnel ouvert) accepte, le point de rendez-vous
   // ne voit pas passer le message. Il ne sert que de secours.
   const peers = c.outbox.filter(o => o.relay.startsWith("peer:")), wss = c.outbox.filter(o => !o.relay.startsWith("peer:"));
   for (const o of peers) {
     if (skipRelays.includes(o.relay)) continue;
     const cid = o.relay.slice(5); if (cid === S.me.id || !S.contacts.has(cid)) continue;   // porteur inconnu de moi : inutilisable
-    if (S.pool.get(o.relay).post(o.box, blob, ttl)) _lastPosted.push(o.relay);
+    if (S.pool.get(o.relay).post(o.box, blob, ttl)) posted.push(o.relay);
   }
-  const carried = _lastPosted.length > 0 || peers.some(o => skipRelays.includes(o.relay));
-  if (!carried || env.t !== "msg") for (const o of wss) if (!skipRelays.includes(o.relay) && S.pool.get(o.relay).post(o.box, blob)) _lastPosted.push(o.relay);
-  return _lastPosted.length ? "relay" : "queued";
+  const carried = posted.length > 0 || peers.some(o => skipRelays.includes(o.relay));
+  if (!carried || env.t !== "msg") for (const o of wss) if (!skipRelays.includes(o.relay) && S.pool.get(o.relay).post(o.box, blob)) posted.push(o.relay);
+  return { via: posted.length ? "relay" : "queued", posted };
 }
 // Présence : « hello » en direct si tunnel, sinon via répondeur au plus une fois / 10 min par
 // contact silencieux (sinon des centaines de blobs s'empileraient dans sa boîte pendant son absence).
@@ -175,8 +187,8 @@ function broadcast(env) {
   for (const c of S.contacts.values()) {
     if (c.pending) continue;
     const l = S.links.get(c.id);
-    const e = env.t === "hello" ? { ...env, card: myCard(c) } : env;
-    if (l && l.open) { sendTo(c, e); continue; }
+    const e = env.t === "hello" ? { ...env, card: myCard(c), name: S.me.name, color: S.me.color, pv: S.me.pv || 0 } : env;
+    if ((l && l.open) || env.t !== "hello") { sendTo(c, e); continue; }
     const last = _helloAt.get(c.id) || 0, heard = S.presence.get(c.id) || 0;
     if (Date.now() - last < 600000 && Date.now() - heard > 60000) continue;
     if (Date.now() - last < 25000) continue;
@@ -188,19 +200,19 @@ async function sendMessage(text, file) {
   const env = { t: "msg", id: C.uid(), ts: Date.now(), text, file: file ? { name: file.name, size: file.size } : null };
   const m = { ...env, contact: c.id, dir: "out", status: "sending" };
   await C.store.put("messages", m); c.seen = Date.now(); c.last = "Toi : " + (text || "📎 " + (file?.name || "")); await C.store.put("contacts", c); renderChat(); renderContacts();
-  let via;
+  let r;
   if (file) {
     const l = S.links.get(c.id);
-    if (!(l && l.open)) { m.status = "failed"; m.error = "Fichier : tunnel direct requis (contact hors ligne)"; await C.store.put("messages", m); renderChat(); return; }
-    await l.send(await C.seal(await ensurePair(c), env));
+    if (!(l && l.open)) { m.status = "failed"; m.error = "Les fichiers passent en direct : attends que le contact soit en ligne"; await C.store.put("messages", m); renderChat(); return; }
+    l.send(await C.seal(await ensurePair(c), env));
     await l.sendFile({ id: env.id, name: file.name, size: file.size }, file);
-    via = "direct";
-  } else via = await sendTo(c, env);
-  m.status = via === "queued" ? "queued" : "sent"; m.via = via;
+    r = { via: "direct", posted: [] };
+  } else r = await sendTo(c, env);
+  m.status = r.via === "queued" ? "queued" : "sent"; m.via = r.via;
   await C.store.put("messages", m);
-  // Tout reste dans l'outbox jusqu'à l'ack du destinataire — même en direct : un tunnel qui meurt
-  // (onglet fermé, réseau coupé) accepte encore des envois pendant quelques secondes sans les livrer.
-  await C.store.put("outbox", { id: env.id, contact: c.id, env, posted: _lastPosted, at: Date.now() });
+  // Reste dans l'outbox jusqu'à l'ack du destinataire, même en direct : un tunnel qui meurt accepte
+  // encore des envois pendant quelques secondes sans les livrer.
+  await C.store.put("outbox", { id: env.id, contact: c.id, env, posted: r.posted, at: Date.now() });
   renderChat();
 }
 // Reprise : tout ce qui n'est pas acquitté est reposté (dédoublonné à l'arrivée par id).
@@ -209,10 +221,10 @@ async function flushOutbox() {
     const c = S.contacts.get(o.contact); if (!c) { await C.store.del("outbox", o.id); continue; }
     if ((o.posted || []).length && Date.now() - (o.at || 0) < 8000) continue;   // déjà déposé : laisser le temps à l'ack
     const posted = o.posted || [];
-    const via = await sendTo(c, o.env, posted);
-    if (via === "relay") { o.posted = [...posted, ..._lastPosted]; await C.store.put("outbox", o); }
+    const r = await sendTo(c, o.env, posted);
+    if (r.via === "relay") { o.posted = [...posted, ...r.posted]; await C.store.put("outbox", o); }
     const m = await C.store.get("messages", o.id);
-    if (m && m.status === "queued" && via !== "queued") { m.status = "sent"; m.via = via; await C.store.put("messages", m); if (S.active === c.id) renderChat(); }
+    if (m && m.status === "queued" && r.via !== "queued") { m.status = "sent"; m.via = r.via; await C.store.put("messages", m); if (S.active === c.id) renderChat(); }
   }
 }
 
@@ -253,7 +265,7 @@ const isOnline = (c) => (S.links.get(c.id)?.open) || (Date.now() - (S.presence.g
 // Le lien contient : mon nom, mes clés publiques, une boîte d'accueil (répondeur + id), signé.
 async function makeInvite() {
   const relay = S.relays[0];
-  if (!relay) { toast("Première connexion : un point de rendez-vous est nécessaire (Réglages → Avancé)", true); return ""; }
+  if (!relay) { toast("Pour une première invitation, il faut un point de rendez-vous (Réglages, Avancé)", true); return ""; }
   const wb = await C.newBox(relay);
   const rec = { ...wb, created: Date.now() };
   S.welcome.set(wb.box, rec);
@@ -265,22 +277,27 @@ async function makeInvite() {
   return link;
 }
 async function acceptInvite(code) {
-  let inv; try { inv = JSON.parse(new TextDecoder().decode(C.b64u.dec(code))); } catch { toast("Lien invalide", true); return; }
-  const ok = await C.edVerify(C.b64u.dec(inv.e), C.b64u.dec(inv.sig), new TextEncoder().encode(inv.x + "|" + inv.w.box));
-  if (!ok) { toast("Invitation non signée — refusée", true); return; }
+  let inv; try { inv = JSON.parse(new TextDecoder().decode(C.b64u.dec(code))); } catch { toast("Ce lien n'est pas une invitation valide", true); return; }
+  if (!inv || inv.v !== 2 || !inv.w || typeof inv.w.relay !== "string" || typeof inv.w.box !== "string") { toast("Ce lien n'est pas une invitation valide", true); return; }
+  inv.name = String(inv.name || "Anonyme").slice(0, 24); inv.tag = String(inv.tag || "").slice(0, 4); if (typeof inv.c !== "string") inv.c = undefined;
+  let ok = false; try { ok = await C.edVerify(C.b64u.dec(inv.e), C.b64u.dec(inv.sig), new TextEncoder().encode(inv.x + "|" + inv.w.box)); } catch {}
+  if (!ok) { toast("Invitation non signée, refusée", true); return; }
   const xpub = C.b64u.dec(inv.x), id = await C.contactId(xpub);
   if (id === S.me.id) { toast("C'est ta propre invitation", true); return; }
   if (S.contacts.has(id)) { toast(`${inv.name} est déjà dans ton cercle`); return; }
   const sn = await C.safetyNumber(S.me.x.pub, xpub);
   if (!(await askAccept(inv, sn))) return;
-  // Mes boîtes où IL m'écrira : une par répondeur que j'utilise (le mien + porteurs)
+  // Le point de rendez-vous de l'invitation devient aussi le mien : sans ça, celui qui rejoint sans
+  // rien n'aurait aucune boîte où recevoir la réponse.
+  if (!S.relays.includes(inv.w.relay) && S.relays.length < 4) { S.relays.push(inv.w.relay); await C.kv.set("relays", S.relays); for (const x of S.contacts.values()) x.inbox.push(await C.newBox(inv.w.relay)); }
+  // Mes boîtes où IL m'écrira : une par point de rendez-vous
   const inbox = []; for (const r of S.relays) inbox.push(await C.newBox(r));
   const c = { id, name: inv.name, tag: inv.tag, color: inv.c, xpub: inv.x, epub: inv.e, inbox, outbox: [], pending: true, seen: Date.now() };
   S.contacts.set(id, c); await C.store.put("contacts", c); await subscribeAll();
   const key = await ensurePair(c);
   const intro = await C.seal(key, { t: "intro", name: S.me.name, tag: S.me.tag, color: S.me.color, photo: S.me.photo || null, epub: C.b64u.enc(S.me.e.pub), inbox: myCard(c) });
   S.pool.get(inv.w.relay).post(inv.w.box, C.b64u.enc(S.me.x.pub) + "." + intro);
-  renderAll(); openChat(id); toast(`Demande envoyée à ${inv.name} — en attente de sa réponse`);
+  renderAll(); openChat(id); toast(`Demande envoyée à ${inv.name}, en attente de sa réponse`);
 }
 async function onIntro(w, blob) {
   const [xs, sealed] = blob.split("."); if (!sealed) return;
@@ -294,7 +311,7 @@ async function onIntro(w, blob) {
   // L'intro-ack passe par l'outbox comme un message : reposté jusqu'à l'ack de l'autre côté
   // (son répondeur peut être injoignable à cet instant, ou mon onglet fermé juste après).
   const ack = { t: "intro-ack", id: C.uid(), name: S.me.name, tag: S.me.tag, color: S.me.color, photo: S.me.photo || null, epub: C.b64u.enc(S.me.e.pub), inbox: myCard(c) };
-  await sendTo(c, ack); await C.store.put("outbox", { id: ack.id, contact: c.id, env: ack, posted: _lastPosted, at: Date.now() });
+  const r = await sendTo(c, ack); await C.store.put("outbox", { id: ack.id, contact: c.id, env: ack, posted: r.posted, at: Date.now() });
   // boîte d'accueil consommée
   S.welcome.delete(w.box); await C.kv.set("welcome", [...S.welcome.values()]);
   renderAll(); toast(`${c.name} a rejoint ton cercle`); if (!S.active) openChat(c.id); pickCarriers();
@@ -307,7 +324,7 @@ async function addRelay(url) {
     c.inbox.push(await C.newBox(url)); await C.store.put("contacts", c);
     sendTo(c, { t: "card", inbox: myCard(c) });
   }
-  await subscribeAll(); renderRelays(); toast("Point de rendez-vous ajouté — tes contacts sont prévenus");
+  await subscribeAll(); renderRelays(); toast("Point de rendez-vous ajouté, tes contacts sont prévenus");
 }
 
 // ═══════════════════════ UI ═══════════════════════
@@ -360,7 +377,7 @@ function renderContacts() {
   if (!S.contacts.size) ul.innerHTML = `<li class="empty">Personne encore.<br>Le bouton <b>＋ Inviter</b> crée un lien à envoyer.</li>`;
   else if (!list.length) ul.innerHTML = `<li class="empty">Aucun contact ne correspond.</li>`;
   for (const c of list) {
-    const li = document.createElement("li"); li.className = "contact" + (S.active === c.id ? " active" : "");
+    const li = document.createElement("li"); li.className = "contact" + (S.active === c.id ? " active" : "") + (c.unread ? " unread" : "");
     const st = statusOf(c);
     const sub = c.pending ? st.t : (c.last ? esc(c.last) : st.t);
     li.innerHTML = `<span class="av${st.k !== "off" ? " on" : ""}"></span><div class="cbody"><div class="cname">${esc(c.name)}${c.verified ? ' <span class="tag" title="vérifié">✓</span>' : ""}</div><div class="cst${st.k === "direct" ? " on" : ""}">${sub}</div></div>${c.unread ? `<span class="badge">${c.unread}</span>` : ""}`;
@@ -386,6 +403,8 @@ function renderRelays() {
   $("#relays").innerHTML = S.relays.map(u => { const s = st.find(x => x.url === u); return `<li><span class="dot ${s?.open ? "on" : ""}"></span><span class="grow">${esc(u)}</span><span class="mini">${s?.open ? "connecté" : "injoignable"}</span></li>`; }).join("");
 }
 function onRelayState() { renderRelays(); renderContacts(); }
+const URL_RE = /\bhttps?:\/\/[^\s<>"']+/g;
+const linkify = (escaped) => escaped.replace(URL_RE, (u) => `<a href="${u}" target="_blank" rel="noopener noreferrer">${u}</a>`);
 const dayKey = (ts) => new Date(ts).toDateString();
 const fmtDay = (ts) => { const d = new Date(ts), t = new Date(); return dayKey(ts) === dayKey(t) ? "Aujourd'hui" : d.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" }); };
 let _renderSeq = 0;
@@ -402,16 +421,21 @@ async function renderChat() {
   const msgs = (await C.store.byContact("messages", c.id)).sort((a, b) => a.ts - b.ts);
   if (seq !== _renderSeq) return;
   box.innerHTML = ""; let lastDay = null;
-  for (const m of msgs) {
+  const grp = (i) => {                           // même expéditeur à moins de 3 min : bulles groupées
+    const m = msgs[i], p = msgs[i - 1], n = msgs[i + 1];
+    const a = p && p.dir === m.dir && m.ts - p.ts < 180000 && dayKey(p.ts) === dayKey(m.ts), b = n && n.dir === m.dir && n.ts - m.ts < 180000 && dayKey(n.ts) === dayKey(m.ts);
+    return (a && b ? "mid" : a ? "last" : b ? "first" : "only") + (a ? "" : " gap");
+  };
+  msgs.forEach((m, i) => {
     if (dayKey(m.ts) !== lastDay) { lastDay = dayKey(m.ts); const d = document.createElement("div"); d.className = "day"; d.textContent = fmtDay(m.ts); box.appendChild(d); }
-    const d = document.createElement("div"); d.className = "msg " + m.dir + (m.status === "failed" ? " failed" : ""); d.dataset.id = m.id;
-    let body = m.text ? `<span class="txt">${esc(m.text)}</span>` : "";
+    const d = document.createElement("div"); d.className = `msg ${m.dir} ${grp(i)}` + (m.status === "failed" ? " failed" : ""); d.dataset.id = m.id;
+    let body = m.text ? `<span class="txt">${linkify(esc(m.text))}</span>` : "";
     if (m.file) body += `<span class="file">📎 <span>${esc(m.file.name)} · ${fmtSize(m.file.size)}</span> ${m.blob ? `<a href="#" data-dl="${m.id}">enregistrer</a>` : `<span class="progress mini">${m.dir === "in" ? "réception…" : ""}</span>`}</span>`;
     const stx = m.dir === "out" ? ({ sending: "⏱", queued: "⏳", sent: "✓", read: "✓✓", failed: "✗" }[m.status] || "") : "";
     const title = m.dir === "out" ? ({ sending: "envoi…", queued: "en attente d'un répondeur", sent: "déposé", read: "lu", failed: "échec" }[m.status] || "") : "";
     d.innerHTML = `${body}<span class="meta" title="${title}">${m.via === "direct" ? "⚡" : ""}${fmtTime(m.ts)} ${stx}</span>${m.error ? `<span class="err">${esc(m.error)}</span>` : ""}`;
     box.appendChild(d);
-  }
+  });
   box.querySelectorAll("[data-dl]").forEach(a => a.onclick = async (e) => { e.preventDefault(); const m = await C.store.get("messages", a.dataset.dl); const u = URL.createObjectURL(m.blob); const x = document.createElement("a"); x.href = u; x.download = m.file.name; x.click(); setTimeout(() => URL.revokeObjectURL(u), 5000); });
   box.scrollTop = box.scrollHeight;
 }
@@ -454,16 +478,15 @@ async function openContact(id) {
 function openSettings() {
   $("#settings").hidden = false; $("#set-name").value = S.me.name; $("#set-tag").textContent = `${S.me.name}#${S.me.tag}`;
   setAv($("#set-av"), S.me);
-  swatches($("#set-colors"), colorOf(S.me), async (c) => { S.me.color = c; await C.kv.set("me", S.me); renderAll(); setAv($("#set-av"), S.me); broadcast({ t: "profile", name: S.me.name, color: c }); });
+  swatches($("#set-colors"), colorOf(S.me), async (c) => { S.me.color = c; await saveProfile(); });
   const names = S.carriers.map(cid => S.contacts.get(cid)?.name).filter(Boolean);
   $("#set-carry").textContent = names.length ? `Quand tu es absent, tes messages sont gardés chiffrés chez ${names.join(" et ")} (choisis automatiquement : tes contacts les plus récents). Eux ne peuvent pas les lire.`
-    : S.contacts.size ? "Dès qu'un contact aura accepté, il gardera tes messages chiffrés quand tu es absent — automatiquement." : "Ajoute un contact : ton cercle gardera tes messages quand tu es absent, sans rien régler.";
+    : S.contacts.size ? "Dès qu'un contact aura accepté, il gardera tes messages chiffrés quand tu es absent, automatiquement." : "Ajoute un contact : ton cercle gardera tes messages quand tu es absent, sans rien régler.";
   renderRelays();
 }
 async function renameMe(name) {
   name = name.trim(); if (!name || name === S.me.name) return;
-  S.me.name = name; await C.kv.set("me", S.me); renderAll(); $("#set-tag").textContent = `${S.me.name}#${S.me.tag}`;
-  broadcast({ t: "profile", name, color: colorOf(S.me) }); toast("Nom mis à jour");
+  S.me.name = name; await saveProfile(); $("#set-tag").textContent = `${S.me.name}#${S.me.tag}`; toast("Nom mis à jour");
 }
 
 // ── Événements ──
@@ -480,17 +503,18 @@ $("#empty-join").onclick = () => openInvite("inv-join");
 $$(".tab").forEach(t => t.onclick = () => openInvite(t.dataset.tab));
 $("#invite-close").onclick = () => $("#invite").hidden = true;
 $("#invite-new").onclick = async () => { $("#invite-link").value = await makeInvite(); };
-$("#invite-copy").onclick = async () => { try { await navigator.clipboard.writeText($("#invite-link").value); toast("Lien copié — valable une fois"); } catch { $("#invite-link").select(); toast("Sélectionne et copie le lien (Ctrl+C)"); } };
+$("#invite-copy").onclick = async () => { try { await navigator.clipboard.writeText($("#invite-link").value); toast("Lien copié, valable une fois"); } catch { $("#invite-link").select(); toast("Sélectionne et copie le lien (Ctrl+C)"); } };
 $("#paste-go").onclick = async () => { const v = $("#paste").value.trim(); const i = v.indexOf("#i/"); if (i < 0) return toast("Ce n'est pas un lien d'invitation Krypty", true); $("#invite").hidden = true; await acceptInvite(v.slice(i + 3)); $("#paste").value = ""; };
 $("#btn-settings").onclick = openSettings;
 $("#btn-contact").onclick = () => { if (S.active) openContact(S.active); };
 $("#ct-close").onclick = () => $("#contact").hidden = true;
 $("#photo-file").onchange = async (e) => {
   const f = e.target.files[0]; e.target.value = ""; if (!f) return;
-  try { S.me.photo = await C.resizePhoto(f); await C.kv.set("me", S.me); renderAll(); setAv($("#set-av"), S.me); broadcast({ t: "profile", name: S.me.name, color: colorOf(S.me), photo: S.me.photo }); toast("Photo mise à jour"); }
+  try { S.me.photo = await C.resizePhoto(f); await saveProfile(); toast("Photo mise à jour"); }
   catch { toast("Image illisible", true); }
 };
-$("#photo-rm").onclick = async () => { S.me.photo = null; await C.kv.set("me", S.me); renderAll(); setAv($("#set-av"), S.me); broadcast({ t: "profile", name: S.me.name, color: colorOf(S.me), photo: null }); };
+$("#photo-rm").onclick = async () => { S.me.photo = null; await saveProfile(); };
+async function saveProfile() { S.me.pv = Date.now(); await C.kv.set("me", S.me); renderAll(); setAv($("#set-av"), S.me); broadcast(myProfile()); }
 $("#set-close").onclick = () => $("#settings").hidden = true;
 $("#set-name-ok").onclick = () => renameMe($("#set-name").value);
 $("#set-name").onkeydown = (e) => { if (e.key === "Enter") renameMe(e.target.value); };
@@ -504,10 +528,10 @@ $("#btn-export").onclick = async () => {
 $("#import-file").onchange = async (e) => {
   const f = e.target.files[0]; e.target.value = ""; if (!f) return;
   const pass = prompt("Phrase secrète de cette sauvegarde :"); if (!pass) return;
-  try { await C.importBackup(f, pass); toast("Sauvegarde restaurée — rechargement"); setTimeout(() => location.reload(), 800); }
+  try { await C.importBackup(f, pass); toast("Sauvegarde restaurée, rechargement"); setTimeout(() => location.reload(), 800); }
   catch (err) { toast("Impossible : " + (err.message === "bad-pass" ? "phrase secrète incorrecte" : "fichier invalide"), true); }
 };
-$("#btn-wipe").onclick = async () => { if (confirm("Tout effacer sur cet appareil ? Identité, contacts, messages — sans sauvegarde, c'est définitif.")) { await C.wipe(); location.hash = ""; location.reload(); } };
+$("#btn-wipe").onclick = async () => { if (confirm("Tout effacer sur cet appareil ? Identité, contacts, messages. Sans sauvegarde, c'est définitif.")) { await C.wipe(); location.hash = ""; location.reload(); } };
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") $$(".modal").forEach(m => m.hidden = true); });
 if (["localhost", "127.0.0.1"].includes(location.hostname)) window.K = S;   // inspection en dev uniquement
 boot();

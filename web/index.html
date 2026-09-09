@@ -6,6 +6,7 @@
 <meta name="color-scheme" content="dark light">
 <meta name="theme-color" content="#0D0D0F">
 <title>Krypty</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 64 64%27%3E%3Crect width=%2764%27 height=%2764%27 rx=%2718%27 fill=%27%2330D158%27/%3E%3Ctext x=%2732%27 y=%2745%27 font-family=%27Segoe UI,system-ui,sans-serif%27 font-weight=%27800%27 font-size=%2738%27 text-anchor=%27middle%27 fill=%27%23052A11%27%3EK%3C/text%3E%3C/svg%3E">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -35,7 +36,7 @@
     <header class="side-head">
       <button class="me" id="btn-settings" title="Réglages">
         <span class="av" id="me-av">?</span>
-        <span class="me-txt"><b id="me-name">—</b><small>Réglages · sauvegarde</small></span>
+        <span class="me-txt"><b id="me-name">&nbsp;</b><small>Réglages · sauvegarde</small></span>
       </button>
       <button id="btn-invite" class="primary small" title="Inviter quelqu'un dans ton cercle">＋ Inviter</button>
     </header>
@@ -61,7 +62,7 @@
         <button id="btn-back" class="icon" aria-label="Retour" title="Retour">‹</button>
         <button class="who" id="btn-contact" title="Fiche du contact">
           <span class="av" id="chat-av">?</span>
-          <div class="chat-title"><b id="chat-title">—</b><span id="chat-sub" class="mini">—</span></div>
+          <div class="chat-title"><b id="chat-title">&nbsp;</b><span id="chat-sub" class="mini">&nbsp;</span></div>
         </button>
         <span id="chat-pill" class="pill"></span>
       </header>
@@ -98,7 +99,7 @@
   <!-- Confirmation d'ajout (numéro de sécurité) -->
   <div id="accept" class="modal" hidden>
     <div class="box">
-      <div class="who-big"><span class="av big" id="acc-av">?</span><div><b id="acc-name">—</b><div class="mini">t'invite dans son cercle</div></div></div>
+      <div class="who-big"><span class="av big" id="acc-av">?</span><div><b id="acc-name">&nbsp;</b><div class="mini">t'invite dans son cercle</div></div></div>
       <p class="mini">Vous pourrez comparer vos 5 symboles de vérification plus tard, dans sa fiche. Personne d'autre ne saura que vous êtes en contact.</p>
       <div class="row"><button class="primary big grow" id="acc-ok">Ajouter</button><button id="acc-no">Annuler</button></div>
     </div>
@@ -108,13 +109,13 @@
   <div id="contact" class="modal" hidden>
     <div class="box">
       <div class="tabs"><b class="grow">Contact</b><button class="x" id="ct-close" aria-label="Fermer">✕</button></div>
-      <div class="who-big"><span class="av big" id="ct-av">?</span><div><b id="ct-name">—</b><div class="mini" id="ct-state">—</div></div></div>
+      <div class="who-big"><span class="av big" id="ct-av">?</span><div><b id="ct-name">&nbsp;</b><div class="mini" id="ct-state">&nbsp;</div></div></div>
       <h3>Vérification</h3>
       <p class="mini">Ces 5 symboles sont calculés à partir de vos deux clés. S'ils sont identiques chez lui, personne ne s'est glissé entre vous.</p>
-      <div class="emo" id="ct-emo">—</div>
+      <div class="emo" id="ct-emo">&nbsp;</div>
       <div class="row"><button class="small" id="ct-verify">Nous avons comparé, c'est identique</button><span class="mini" id="ct-verified"></span></div>
       <details class="adv"><summary>Détails techniques</summary>
-        <p class="mini">Identifiant : <code id="ct-tag">—</code><br>Numéro de sécurité :</p><pre id="ct-sn" class="sn small"></pre>
+        <p class="mini">Identifiant : <code id="ct-tag">&nbsp;</code><br>Numéro de sécurité :</p><pre id="ct-sn" class="sn small"></pre>
       </details>
       <h3>Actions</h3>
       <div class="row wrap"><button class="small" id="ct-rename">Renommer chez moi</button><button class="small danger" id="ct-delete">Retirer du cercle</button></div>
@@ -136,7 +137,7 @@
       <div class="row"><button class="small ghost" id="photo-rm">Retirer la photo</button><span class="mini">Nom, couleur et photo sont envoyés chiffrés à tes contacts, à personne d'autre.</span></div>
 
       <h3>Hors ligne</h3>
-      <p class="mini" id="set-carry">—</p>
+      <p class="mini" id="set-carry">&nbsp;</p>
 
       <h3>Cet appareil</h3>
       <div class="row wrap">
@@ -147,11 +148,11 @@
       </div>
       <p class="mini">La sauvegarde (identité + contacts + messages) est chiffrée avec une phrase secrète. C'est le seul moyen de retrouver ton identité sur un autre appareil.</p>
 
-      <details class="adv"><summary>Avancé — points de rendez-vous</summary>
+      <details class="adv"><summary>Avancé : points de rendez-vous</summary>
         <p class="mini">Un point de rendez-vous est une petite boîte aux lettres publique (<code>relay.py</code>). Il n'en faut qu'un pour la toute première connexion entre deux personnes ; ensuite, le cercle porte tout seul. Il ne voit que des boîtes anonymes et des messages chiffrés.</p>
         <ul id="relays" class="relays"></ul>
         <div class="row"><input id="relay-url" placeholder="ws://ip-ou-nom:8765"><button id="relay-add" class="small">Ajouter</button></div>
-        <p class="mini">Identifiant de cet appareil : <code id="set-tag">—</code></p>
+        <p class="mini">Identifiant de cet appareil : <code id="set-tag">&nbsp;</code></p>
       </details>
     </div>
   </div>
