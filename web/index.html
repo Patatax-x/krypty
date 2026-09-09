@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Krypty</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<section id="onboard" hidden>
+  <div class="ob">
+    <div class="logo"></div>
+    <h1>Krypty</h1>
+    <p class="tagline">La messagerie qui ne sait pas que vous existez.</p>
+    <p class="sub">Aucun compte. Aucun serveur qui garde un nom. Votre identité est une clé créée ici, connue seulement de vos contacts.</p>
+    <label>Comment vos contacts vous verront</label>
+    <input id="ob-name" maxlength="24" placeholder="ex : Nyx" autocomplete="off">
+    <button id="ob-go" class="primary">Créer mon identité →</button>
+    <p class="fine">Un tag à 4 caractères dérivé de votre clé sera ajouté (ex : Nyx#7F3A). Rien n'est envoyé nulle part.</p>
+  </div>
+</section>
+
+<section id="app" hidden>
+  <aside>
+    <header>
+      <div class="me"><span id="me-name">—</span><span class="mini">c'est vous</span></div>
+      <button id="btn-invite" class="primary small">＋ Inviter</button>
+    </header>
+    <ul id="contacts"></ul>
+    <div class="panel">
+      <h3>Répondeurs <span class="mini">(le vôtre + ceux de votre cercle)</span></h3>
+      <ul id="relays" class="relays"></ul>
+      <div class="row"><input id="relay-url" placeholder="ws://ip-ou-nom:8765"><button id="relay-add" class="small">Ajouter</button></div>
+      <div class="row"><button id="btn-notif" class="small ghost">Notifications</button><button id="btn-wipe" class="small ghost danger">Tout effacer</button></div>
+    </div>
+  </aside>
+
+  <main>
+    <header>
+      <div><div id="chat-title" class="title">—</div><div id="chat-sub" class="mini">choisis un contact</div></div>
+    </header>
+    <div id="messages"></div>
+    <footer>
+      <label class="attach" title="Fichier (tunnel direct requis)">📎<input id="file" type="file" hidden></label>
+      <textarea id="input" rows="1" placeholder="Message… (Entrée pour envoyer)"></textarea>
+      <button id="send" class="primary round" aria-label="Envoyer">➤</button>
+    </footer>
+  </main>
+
+  <div id="invite" class="modal" hidden>
+    <div class="box">
+      <h3>Inviter quelqu'un</h3>
+      <p class="mini">Ce lien contient vos clés publiques et une boîte d'accueil à usage unique. Envoyez-le par n'importe quel canal. Le <code>#</code> n'est jamais transmis à un serveur.</p>
+      <textarea id="invite-link" readonly rows="3"></textarea>
+      <h3>…ou rejoindre</h3>
+      <div class="row"><input id="paste" placeholder="Coller un lien d'invitation reçu"><button id="paste-go" class="small">Rejoindre</button></div>
+      <button id="invite-close" class="ghost">Fermer</button>
+    </div>
+  </div>
+  <div id="toast"></div>
+</section>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>
