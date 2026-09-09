@@ -103,7 +103,8 @@ par le navigateur (voir <code>DEPLOY.md</code> pour un tunnel gratuit).</p>
 <ul>
 <li><b>Une identité = un appareil</b>, sauf si vous exportez une sauvegarde et la restaurez ailleurs. Deux appareils actifs en même temps se partagent les messages sans se synchroniser : le premier qui lit efface.</li>
 <li><b>Pas de forward secrecy</b> pour l'instant : la clé de paire est statique. Une clé privée volée déchiffre l'historique capturé.</li>
-<li><b>Un répondeur hostile</b> ne lit rien, mais peut jeter des blobs (déni de service) ou compter combien de blobs passent par une boîte. D'où plusieurs répondeurs par contact.</li>
+<li><b>Le cercle porte</b> : vos deux contacts les plus récents gardent vos messages chiffrés quand vous êtes absent, automatiquement. Ils ne peuvent pas les lire. Un porteur hostile peut au pire jeter un message : c'est pour ça qu'il y en a deux.</li>
+<li><b>Il faut un point de rendez-vous</b> pour que deux navigateurs se trouvent la première fois (ou après un redémarrage sans contact commun en ligne). Il ne voit que des boîtes anonymes et des blobs chiffrés.</li>
 <li><b>Fichiers</b> : uniquement en direct (tunnel). Hors ligne, seuls les textes attendent.</li>
 <li><b>Pas de groupes</b> dans cette version.</li>
 <li>Perdre l'appareil sans sauvegarde = perdre l'identité. Les contacts devront vous ré‑inviter.</li>

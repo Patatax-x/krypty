@@ -140,3 +140,23 @@ export async function importBackup(file, pass) {
   for (const m of data.messages || []) if (!(await store.get("messages", m.id))) await store.put("messages", m);
 }
 export function wipe() { return new Promise((res) => { if (_db) _db.close(); _db = null; const r = indexedDB.deleteDatabase(DB); r.onsuccess = r.onerror = r.onblocked = () => res(); }); }
+
+// ── Empreinte de vérification lisible : 5 emojis dérivés des deux clés publiques (ordre indépendant) ──
+const EMO = ["🍎","🍋","🍇","🍓","🥝","🌶️","🥑","🍄","🌵","🌻","🌙","⭐","🔥","💧","🌈","❄️","🐶","🐱","🐭","🦊","🐻","🐼","🐨","🐸","🐙","🦋","🐢","🦉","🐝","🦄","🐬","🦀",
+             "⚽","🎸","🎲","🎯","🎁","🎈","🔑","🔔","💎","🧲","🧭","⏰","🚀","✈️","⛵","🚲","🏠","⛺","🗿","🎪","🍕","🍩","🍪","🧁","☕","🍵","🧊","🍯","📚","✏️","📎","🧩"];
+export async function emojiFingerprint(pubA, pubB) {
+  const [a, b] = [b64u.enc(pubA), b64u.enc(pubB)].sort();
+  const h = await sha256(te.encode("emoji|" + a + "|" + b));
+  return [0, 1, 2, 3, 4].map(i => EMO[h[i] % 64]).join(" ");
+}
+// Photo de profil : carré 96 px, JPEG ~4 Ko → tient dans un blob de répondeur, envoyée chiffrée aux contacts
+export function resizePhoto(file, size = 96) {
+  return new Promise((res, rej) => {
+    const img = new Image(); const u = URL.createObjectURL(file);
+    img.onload = () => { const c = document.createElement("canvas"); c.width = c.height = size; const x = c.getContext("2d");
+      const m = Math.min(img.width, img.height); x.drawImage(img, (img.width - m) / 2, (img.height - m) / 2, m, m, 0, 0, size, size);
+      URL.revokeObjectURL(u); res(c.toDataURL("image/jpeg", 0.8)); };
+    img.onerror = () => { URL.revokeObjectURL(u); rej(new Error("image")); };
+    img.src = u;
+  });
+}

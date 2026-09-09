@@ -54,7 +54,32 @@ mourant compté comme livré (→ tout reste en outbox jusqu'à l'ack, repost vi
   `relay.py` écoute en IPv4+IPv6 (`ws://localhost` mettait ~9 s à cause de `::1`).
 - Publication : voir `DEPLOY.md` (dépôt public + GitHub Pages, app servie depuis `web/`, doc dans `docs/`).
 
+## Le cercle est le relais (2026-09-09, 3e passe) — `web/carry.js`
+- **Porteurs automatiques** : mes 2 contacts les plus récents gardent mes messages quand je suis absent.
+  Choisis tout seuls (`pickCarriers`), recalculés à chaque contact ajouté / message reçu, annoncés aux
+  contacts par la « carte » (`card`, aussi portée par chaque `hello`). Aucun réglage.
+- Chaque client est un porteur (`Carrier`) : boîtes anonymes + blobs chiffrés dans IndexedDB `carry`,
+  même sémantique que `relay.py`, par-dessus le tunnel WebRTC (`{__box: sub|post|msg|ack}`). Le porteur
+  **ne peut pas lire** : clé de paire expéditeur↔destinataire, jamais la sienne. Efface à l'ack, TTL 15 j
+  (5 min pour présence/signalisation).
+- Le cercle d'abord : si un porteur accepte, le point de rendez-vous WebSocket ne voit pas passer le
+  message. Périmé/doublon : chaque enveloppe a un id, la 2e arrivée (autre chemin) est jetée puis acquittée.
+- **Limite structurelle** : pour (re)connecter deux navigateurs, il faut un point joignable pour la
+  signalisation WebRTC (un contact commun déjà en tunnel, ou un `relay.py`). Sans aucun point de
+  rendez-vous, deux navigateurs derrière deux box ne peuvent pas se trouver. `BOOTSTRAP_RELAYS` (app.js)
+  est vide : en production il faudra soit un mini rendez-vous gratuit (Cloudflare Worker), soit l'app de
+  bureau qui embarque `relay.py`. Le rendez-vous ne voit que des boîtes anonymes et des blobs chiffrés.
+- Vérifié : Alice absente → Bob écrit → blob stocké chez Chloé (184 o) → Alice revient → reçu, ✓✓ chez Bob,
+  store de Chloé vidé. Trois tunnels rétablis après rechargement.
+
+## Interface (3e passe)
+- Tag `#XXXX` caché partout (fiche contact → détails techniques). Acceptation en un clic ; vérification
+  optionnelle par **5 emojis** identiques des deux côtés (fiche contact), numéro à 60 chiffres en détails.
+- Photo de profil (96 px JPEG ~2-5 Ko, chiffrée vers les contacts, jamais ailleurs), renommage local d'un contact,
+  retrait du cercle. Pied de liste : « Prêt » / « Ajoute un contact pour commencer » (plus de « répondeur »).
+- Réglages → « Hors ligne » explique en une phrase qui garde les messages ; « Avancé » pour les points de rendez-vous.
+- Dev : `window.K` = état (localhost uniquement).
+
 ## Pas encore fait
-- Porteurs (« le cercle est le relais ») : `addRelay` + carte `card` existent, mais pas le dépôt chez
-  un contact tiers ni le partage de secret (Shamir). Le répondeur Python reste le seul relais.
+- Partage de secret (Shamir) entre porteurs ; rendez-vous d'amorçage gratuit ; app de bureau avec relay embarqué.
 - Pas de forward secrecy (clé de paire statique). Pas de groupes. Pas de PWA/offline-cache, pas de Tauri.

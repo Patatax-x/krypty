@@ -41,7 +41,7 @@ export class Link {
       const a = await this.pc.createAnswer(); await this.pc.setLocalDescription(a);
       this.sendSignal({ t: "answer", sdp: this.pc.localDescription });
     } else if (m.t === "answer") {
-      if (this.pc && this.pc.signalingState === "have-local-offer") await this.pc.setRemoteDescription(m.sdp);
+      if (this.pc && this.pc.signalingState === "have-local-offer") { try { await this.pc.setRemoteDescription(m.sdp); } catch {} }   // réponse en double (deux chemins) : ignorée
     } else if (m.t === "ice") {
       if (this.pc) { try { await this.pc.addIceCandidate(m.c); } catch {} }
     }
@@ -63,6 +63,7 @@ export class Link {
     if (typeof data === "string") {
       let j = null; try { j = JSON.parse(data); } catch {}
       if (j && j.__file) { this.files.set(j.__file.id, { meta: j.__file, parts: [], got: 0 }); return; }
+      if (j && j.__box) { this.onEnvelope({ t: "box", m: j }); return; }
       if (j && j.__fileEnd) { const f = this.files.get(j.__fileEnd); this.files.delete(j.__fileEnd); if (f) this.onEnvelope({ t: "file", meta: f.meta, blob: new Blob(f.parts) }); return; }
       this.onEnvelope({ t: "sealed", blob: data });
     } else {

@@ -49,7 +49,7 @@ export class Relay {
   // reconnexion en cours) est mis en attente et part à l'ouverture — sinon il était perdu en silence.
   post(box, blob) {
     if (this.open) return this.send({ op: "post", box, blob });
-    if (!this.closed && this.pendingPosts.length < 200) { this.pendingPosts.push({ box, blob }); return true; }
+    if (!this.closed && this.ws && this.ws.readyState === 0 && this.pendingPosts.length < 200) { this.pendingPosts.push({ box, blob }); return true; }   // en cours de connexion seulement
     return false;
   }
 }
@@ -58,11 +58,12 @@ const std = (s) => s.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - s.l
 
 // Pool : un Relay par URL, partagé par tous les contacts.
 export class RelayPool {
-  constructor(onBlob, onState) { this.onBlob = onBlob; this.onState = onState; this.relays = new Map(); }
+  constructor(onBlob, onState, peerFactory) { this.onBlob = onBlob; this.onState = onState; this.peerFactory = peerFactory; this.relays = new Map(); }
   get(url) {
-    if (!this.relays.has(url)) this.relays.set(url, new Relay(url, this.onBlob, this.onState));
+    if (!this.relays.has(url)) this.relays.set(url, url.startsWith("peer:") ? this.peerFactory(url.slice(5)) : new Relay(url, this.onBlob, this.onState));
     return this.relays.get(url);
   }
+  has(url) { return this.relays.has(url); }
   // Poster un blob sur TOUTES les boîtes de sortie d'un contact (son répondeur + porteurs).
   // Renvoie le nombre de répondeurs joignables ayant accepté.
   post(outboxes, blob) {
@@ -71,4 +72,5 @@ export class RelayPool {
     return n;
   }
   states() { return [...this.relays.values()].map(r => ({ url: r.url, open: r.open })); }
+  wsOpen() { return [...this.relays.values()].some(r => !r.url.startsWith("peer:") && r.open); }
 }

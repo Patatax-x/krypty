@@ -2,6 +2,7 @@
 import * as C from "./core.js";
 import { RelayPool } from "./relay.js";
 import { Link } from "./link.js";
+import { Carrier, PeerRelay } from "./carry.js";
 
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -13,27 +14,40 @@ const S = {
   relays: [], welcome: new Map(),   // welcome: box -> {key, pub, relay, xpriv}
   presence: new Map(),              // cid -> last hello ts
   pairKeys: new Map(),
+  carrier: null,                    // je porte pour mes contacts (carry.js)
+  carriers: [],                     // cids des contacts qui portent pour moi (choisis automatiquement)
 };
+const N_CARRIERS = 2;
+// Répondeurs WebSocket par défaut : uniquement en développement local. En production, personne :
+// « si aucun contact, pas de répondeur » — le cercle porte, plus il y a de monde, plus il y a de porteurs.
+const BOOTSTRAP_RELAYS = [];
 
 // ═══════════════════════ Démarrage ═══════════════════════
 async function boot() {
-  S.relays = (await C.kv.get("relays")); if (!Array.isArray(S.relays) || !S.relays.length) S.relays = [defaultRelay()];
+  S.relays = (await C.kv.get("relays")); if (!Array.isArray(S.relays)) S.relays = defaultRelays();
   S.me = await C.kv.get("me");
   if (S.me && !(S.me.x && S.me.x.pub && S.me.e && S.me.e.pub)) { await C.kv.del("me"); S.me = null; }   // format inconnu (ancien proto) → ré-onboarding
   if (!S.me) { showOnboard(); return; }
   if (!S.me.id) { S.me.id = await C.contactId(S.me.x.pub); await C.kv.set("me", S.me); }
   await start();
 }
-function defaultRelay() { return (location.protocol === "https:" ? "wss://" : "ws://") + (location.hostname || "localhost") + ":8765"; }
+function defaultRelays() {
+  if (["localhost", "127.0.0.1"].includes(location.hostname)) return ["ws://" + location.hostname + ":8765"];   // dev
+  return [...BOOTSTRAP_RELAYS];
+}
 
 async function start() {
-  S.pool = new RelayPool(onBlob, onRelayState);
+  S.pool = new RelayPool(onBlob, onRelayState, (cid) => new PeerRelay(cid, (id) => S.links.get(id), onBlob));
+  S.carrier = new Carrier((cid, obj) => { const l = S.links.get(cid); return !!(l && l.open && l.send(JSON.stringify(obj))); });
+  if (!S.me.pickups) S.me.pickups = {};
+  S.carriers = ((await C.kv.get("carriers")) || []).filter(cid => S.me.pickups[cid]);
   for (const c of await C.store.all("contacts")) { S.contacts.set(c.id, c); await ensurePair(c); }
   for (const url of S.relays) S.pool.get(url);
   await subscribeAll();
   // Reprise : ré-enregistrer les boîtes d'accueil encore valables
   const w = (await C.kv.get("welcome")) || [];
   for (const b of w) { S.welcome.set(b.box, b); S.pool.get(b.relay).subscribe(b.box, b.key, b.pub); }
+  await pickCarriers(false);
   renderAll();
   setInterval(flushOutbox, 15000);
   setInterval(() => broadcast({ t: "hello", ts: Date.now() }), 25000);
@@ -47,6 +61,23 @@ async function ensurePair(c) {
 }
 async function subscribeAll() {
   for (const c of S.contacts.values()) for (const ib of c.inbox) S.pool.get(ib.relay).subscribe(ib.box, ib.key, ib.pub);
+  for (const cid of S.carriers) { const p = S.me.pickups[cid]; if (p && S.contacts.has(cid)) S.pool.get("peer:" + cid).subscribe(p.box, p.key, p.pub); }
+}
+// ── Porteurs automatiques : mes N contacts les plus récents gardent mes messages quand je suis absent.
+// Rien à régler : recalculé à chaque contact ajouté / message échangé ; les contacts reçoivent ma carte.
+async function pickCarriers(announce = true) {
+  const want = [...S.contacts.values()].filter(c => !c.pending).sort((a, b) => (b.seen || 0) - (a.seen || 0)).slice(0, N_CARRIERS).map(c => c.id);
+  const same = want.length === S.carriers.length && want.every((id, i) => id === S.carriers[i]);
+  let changed = false;
+  for (const cid of want) if (!S.me.pickups[cid]) { const b = await C.newBox("peer:" + cid); S.me.pickups[cid] = { box: b.box, key: b.key, pub: b.pub }; changed = true; }
+  if (same && !changed) return;
+  S.carriers = want; await C.kv.set("me", S.me); await C.kv.set("carriers", want);
+  await subscribeAll(); renderContacts();
+  if (announce) for (const c of S.contacts.values()) if (!c.pending) sendTo(c, { t: "card", inbox: myCard(c) });
+}
+// Ma carte pour un contact : ses boîtes chez mes répondeurs WebSocket + mes boîtes chez mes porteurs
+function myCard(c) {
+  return [...c.inbox.map(b => ({ relay: b.relay, box: b.box })), ...S.carriers.filter(cid => S.me.pickups[cid]).map(cid => ({ relay: "peer:" + cid, box: S.me.pickups[cid].box }))];
 }
 
 // ═══════════════════════ Réception ═══════════════════════
@@ -55,14 +86,29 @@ async function onBlob(relayUrl, box, mid, blob) {
   try {
     // Boîte d'accueil (invitation) : blob = xpub_acceptant.scellé
     if (S.welcome.has(box)) { await onIntro(S.welcome.get(box), blob); return true; }
-    const c = [...S.contacts.values()].find(x => x.inbox.some(b => b.box === box));
+    const via = relayUrl.startsWith("peer:") ? "peer" : "relay";
+    let c = [...S.contacts.values()].find(x => x.inbox.some(b => b.box === box));
+    if (!c && Object.values(S.me.pickups).some(p => p.box === box)) {       // boîte chez un porteur : partagée par tous mes contacts
+      for (const x of S.contacts.values()) { if (x.pending) continue; try { const env = await C.open(await ensurePair(x), blob); await dispatch(x, env, via); return true; } catch {} }
+      return true;                                         // indéchiffrable (contact supprimé ?) : on jette
+    }
     if (!c) return true;                                   // boîte inconnue : on jette
     const env = await C.open(await ensurePair(c), blob);
-    await dispatch(c, env, "relay");
+    await dispatch(c, env, via);
     return true;
   } catch (e) { console.warn("blob rejeté", e); return true; }
 }
+// Une enveloppe peut arriver par plusieurs chemins (rendez-vous + porteurs) : on ne traite qu'une fois.
+const _seen = new Set(); let _seenList = [];
+function seenBefore(id) {
+  if (!id) return false;
+  if (_seen.has(id)) return true;
+  _seen.add(id); _seenList.push(id);
+  if (_seenList.length > 3000) { for (const x of _seenList.splice(0, 1000)) _seen.delete(x); }
+  return false;
+}
 async function dispatch(c, env, via) {
+  if (seenBefore(env.id)) return;
   if (env.t === "msg") {
     if (await C.store.get("messages", env.id)) return;   // doublon (plusieurs porteurs)
     await C.store.put("messages", { id: env.id, contact: c.id, dir: "in", ts: env.ts, text: env.text, file: env.file || null, via });
@@ -71,40 +117,55 @@ async function dispatch(c, env, via) {
     await C.store.put("contacts", c);
     sendTo(c, { t: "ack", ids: [env.id] });
     renderContacts(); if (S.active === c.id) renderChat();
-    notify(c, env.text);
+    notify(c, env.text); pickCarriers();
   } else if (env.t === "ack") {
     for (const id of env.ids) { const m = await C.store.get("messages", id); if (m && m.dir === "out") { m.status = "read"; await C.store.put("messages", m); } await C.store.del("outbox", id); }
     if (S.active === c.id) renderChat();
   } else if (env.t === "hello") {
     if (Date.now() - env.ts > 120000) return;            // hello périmé (resté au répondeur)
     S.presence.set(c.id, Date.now());
-    if (!env.reply) sendTo(c, { t: "hello", ts: Date.now(), reply: true });
+    if (Array.isArray(env.card) && env.card.length) { c.outbox = env.card; await C.store.put("contacts", c); }
+    if (!env.reply) sendTo(c, { t: "hello", ts: Date.now(), reply: true, card: myCard(c) });
     maybeLink(c);
     renderContacts();
-  } else if (env.t === "profile") {         // nom / couleur changés
+  } else if (env.t === "profile") {         // nom / couleur / photo changés
     if (env.name) c.name = String(env.name).slice(0, 24); if (env.color) c.color = env.color;
+    if ("photo" in env) c.photo = (typeof env.photo === "string" && env.photo.startsWith("data:image/") && env.photo.length < 40000) ? env.photo : null;
     await C.store.put("contacts", c); renderContacts(); if (S.active === c.id) renderChat();
   } else if (env.t === "card") {           // le contact a changé ses boîtes / porteurs
     c.outbox = env.inbox; await C.store.put("contacts", c);
   } else if (env.t === "intro-ack") {      // fin de l'invitation côté acceptant
     const wasPending = c.pending;
-    c.name = env.name; c.epub = env.epub; c.outbox = env.inbox; c.pending = false; if (env.color) c.color = env.color;
+    c.name = env.name; c.epub = env.epub; c.outbox = env.inbox; c.pending = false; if (env.color) c.color = env.color; if (env.photo) c.photo = env.photo;
     await C.store.put("contacts", c); if (env.id) sendTo(c, { t: "ack", ids: [env.id] });
-    renderAll(); if (wasPending) { toast(`${c.name} est maintenant dans ton cercle`); flushOutbox(); }
+    renderAll(); if (wasPending) { toast(`${c.name} est maintenant dans ton cercle`); flushOutbox(); pickCarriers(); }
   } else if (["offer", "answer", "ice"].includes(env.t)) {
+    if (env.ts && Date.now() - env.ts > 60000) return;   // signalisation périmée (restée chez un porteur)
     await getLink(c).onSignal(env);
   }
 }
 
 // ═══════════════════════ Envoi ═══════════════════════
 let _lastPosted = [];
+const SHORT = ["hello", "offer", "answer", "ice", "ack", "card", "profile"];   // pas de sens après quelques minutes → TTL court chez un porteur
 async function sendTo(c, env, skipRelays = []) {
+  const ttl = SHORT.includes(env.t) ? 5 * 60 * 1000 : undefined;
+  if (!env.id) env.id = C.uid();
   const key = await ensurePair(c);
   const blob = await C.seal(key, env);
   const l = S.links.get(c.id);
   _lastPosted = [];
   if (l && l.open && l.send(blob)) return "direct";
-  for (const o of c.outbox) if (!skipRelays.includes(o.relay) && S.pool.get(o.relay).post(o.box, blob)) _lastPosted.push(o.relay);
+  // Le cercle d'abord : si un porteur (contact commun, tunnel ouvert) accepte, le point de rendez-vous
+  // ne voit pas passer le message. Il ne sert que de secours.
+  const peers = c.outbox.filter(o => o.relay.startsWith("peer:")), wss = c.outbox.filter(o => !o.relay.startsWith("peer:"));
+  for (const o of peers) {
+    if (skipRelays.includes(o.relay)) continue;
+    const cid = o.relay.slice(5); if (cid === S.me.id || !S.contacts.has(cid)) continue;   // porteur inconnu de moi : inutilisable
+    if (S.pool.get(o.relay).post(o.box, blob, ttl)) _lastPosted.push(o.relay);
+  }
+  const carried = _lastPosted.length > 0 || peers.some(o => skipRelays.includes(o.relay));
+  if (!carried || env.t !== "msg") for (const o of wss) if (!skipRelays.includes(o.relay) && S.pool.get(o.relay).post(o.box, blob)) _lastPosted.push(o.relay);
   return _lastPosted.length ? "relay" : "queued";
 }
 // Présence : « hello » en direct si tunnel, sinon via répondeur au plus une fois / 10 min par
@@ -114,11 +175,12 @@ function broadcast(env) {
   for (const c of S.contacts.values()) {
     if (c.pending) continue;
     const l = S.links.get(c.id);
-    if (l && l.open) { sendTo(c, env); continue; }
+    const e = env.t === "hello" ? { ...env, card: myCard(c) } : env;
+    if (l && l.open) { sendTo(c, e); continue; }
     const last = _helloAt.get(c.id) || 0, heard = S.presence.get(c.id) || 0;
     if (Date.now() - last < 600000 && Date.now() - heard > 60000) continue;
     if (Date.now() - last < 25000) continue;
-    _helloAt.set(c.id, Date.now()); sendTo(c, env);
+    _helloAt.set(c.id, Date.now()); sendTo(c, e);
   }
 }
 async function sendMessage(text, file) {
@@ -157,9 +219,10 @@ async function flushOutbox() {
 // ═══════════════════════ Tunnel direct ═══════════════════════
 function getLink(c) {
   if (!S.links.has(c.id)) {
-    const l = new Link(c.id, (sig) => sendTo(c, sig), (ev) => onLinkEvent(c, ev), (st) => {
+    const l = new Link(c.id, (sig) => sendTo(c, { ...sig, id: C.uid(), ts: Date.now() }), (ev) => onLinkEvent(c, ev), (st) => {
       if (["closed", "failed", "disconnected"].includes(st)) S.presence.delete(c.id);   // tunnel mort = plus « en ligne » tant qu'un hello ne revient pas
-      renderContacts(); if (S.active === c.id) renderChat(); if (st === "open") flushOutbox();
+      renderContacts(); if (S.active === c.id) renderChat();
+      if (st === "open") { S.carrier.onOpen(c.id); if (S.pool.has("peer:" + c.id)) S.pool.get("peer:" + c.id).resub(); flushOutbox(); }
     });
     l.polite = S.me.id > c.id;    // ordre total → un seul initiateur
     S.links.set(c.id, l);
@@ -171,6 +234,11 @@ function maybeLink(c) {
   if (!l.open && !l.polite && !l.pc) l.offer().catch(() => {});
 }
 async function onLinkEvent(c, ev) {
+  if (ev.t === "box") {
+    if (ev.m.__box === "msg") { if (S.pool.has("peer:" + c.id)) await S.pool.get("peer:" + c.id).handle(ev.m); }
+    else await S.carrier.handle(c.id, ev.m);
+    return;
+  }
   if (ev.t === "sealed") { try { await dispatch(c, await C.open(await ensurePair(c), ev.blob), "direct"); } catch {} }
   else if (ev.t === "file") {
     const m = await C.store.get("messages", ev.meta.id);
@@ -185,6 +253,7 @@ const isOnline = (c) => (S.links.get(c.id)?.open) || (Date.now() - (S.presence.g
 // Le lien contient : mon nom, mes clés publiques, une boîte d'accueil (répondeur + id), signé.
 async function makeInvite() {
   const relay = S.relays[0];
+  if (!relay) { toast("Première connexion : un point de rendez-vous est nécessaire (Réglages → Avancé)", true); return ""; }
   const wb = await C.newBox(relay);
   const rec = { ...wb, created: Date.now() };
   S.welcome.set(wb.box, rec);
@@ -209,7 +278,7 @@ async function acceptInvite(code) {
   const c = { id, name: inv.name, tag: inv.tag, color: inv.c, xpub: inv.x, epub: inv.e, inbox, outbox: [], pending: true, seen: Date.now() };
   S.contacts.set(id, c); await C.store.put("contacts", c); await subscribeAll();
   const key = await ensurePair(c);
-  const intro = await C.seal(key, { t: "intro", name: S.me.name, tag: S.me.tag, color: S.me.color, epub: C.b64u.enc(S.me.e.pub), inbox: inbox.map(b => ({ relay: b.relay, box: b.box })) });
+  const intro = await C.seal(key, { t: "intro", name: S.me.name, tag: S.me.tag, color: S.me.color, photo: S.me.photo || null, epub: C.b64u.enc(S.me.e.pub), inbox: myCard(c) });
   S.pool.get(inv.w.relay).post(inv.w.box, C.b64u.enc(S.me.x.pub) + "." + intro);
   renderAll(); openChat(id); toast(`Demande envoyée à ${inv.name} — en attente de sa réponse`);
 }
@@ -220,15 +289,15 @@ async function onIntro(w, blob) {
   const intro = await C.open(key, sealed); if (intro.t !== "intro") return;
   if (S.contacts.has(id)) return;
   const inbox = []; for (const r of S.relays) inbox.push(await C.newBox(r));
-  const c = { id, name: intro.name, tag: intro.tag, color: intro.color, xpub: xs, epub: intro.epub, inbox, outbox: intro.inbox, pending: false, seen: Date.now() };
+  const c = { id, name: intro.name, tag: intro.tag, color: intro.color, photo: intro.photo || null, xpub: xs, epub: intro.epub, inbox, outbox: intro.inbox, pending: false, seen: Date.now() };
   S.contacts.set(id, c); S.pairKeys.set(id, key); await C.store.put("contacts", c); await subscribeAll();
   // L'intro-ack passe par l'outbox comme un message : reposté jusqu'à l'ack de l'autre côté
   // (son répondeur peut être injoignable à cet instant, ou mon onglet fermé juste après).
-  const ack = { t: "intro-ack", id: C.uid(), name: S.me.name, tag: S.me.tag, color: S.me.color, epub: C.b64u.enc(S.me.e.pub), inbox: inbox.map(b => ({ relay: b.relay, box: b.box })) };
+  const ack = { t: "intro-ack", id: C.uid(), name: S.me.name, tag: S.me.tag, color: S.me.color, photo: S.me.photo || null, epub: C.b64u.enc(S.me.e.pub), inbox: myCard(c) };
   await sendTo(c, ack); await C.store.put("outbox", { id: ack.id, contact: c.id, env: ack, posted: _lastPosted, at: Date.now() });
   // boîte d'accueil consommée
   S.welcome.delete(w.box); await C.kv.set("welcome", [...S.welcome.values()]);
-  renderAll(); toast(`${c.name} a rejoint ton cercle`); if (!S.active) openChat(c.id);
+  renderAll(); toast(`${c.name} a rejoint ton cercle`); if (!S.active) openChat(c.id); pickCarriers();
 }
 // Porteurs : ajouter un répondeur = nouvelles boîtes d'entrée partout + carte envoyée aux contacts
 async function addRelay(url) {
@@ -236,9 +305,9 @@ async function addRelay(url) {
   S.relays.push(url); await C.kv.set("relays", S.relays); S.pool.get(url);
   for (const c of S.contacts.values()) {
     c.inbox.push(await C.newBox(url)); await C.store.put("contacts", c);
-    sendTo(c, { t: "card", inbox: c.inbox.map(b => ({ relay: b.relay, box: b.box })) });
+    sendTo(c, { t: "card", inbox: myCard(c) });
   }
-  await subscribeAll(); renderRelays(); toast("Répondeur ajouté — tes contacts sont prévenus");
+  await subscribeAll(); renderRelays(); toast("Point de rendez-vous ajouté — tes contacts sont prévenus");
 }
 
 // ═══════════════════════ UI ═══════════════════════
@@ -246,7 +315,12 @@ const $$ = (s) => [...document.querySelectorAll(s)];
 const COLORS = ["#30D158", "#0A84FF", "#BF5AF2", "#FF9F0A", "#FF375F", "#64D2FF", "#FFD60A", "#AC8E68"];
 const colorOf = (o) => o?.color || COLORS[0];
 const initials = (n) => String(n || "?").trim().slice(0, 2).toUpperCase();
-function setAv(el, o) { el.textContent = initials(o?.name); el.style.setProperty("--c", colorOf(o)); }
+function setAv(el, o) {
+  el.style.setProperty("--c", colorOf(o));
+  const keep = el.querySelector("input");          // (réglages : l'input file vit dans l'avatar)
+  el.innerHTML = o?.photo ? `<img src="${o.photo}" alt="">` : esc(initials(o?.name));
+  if (keep) el.appendChild(keep);
+}
 function swatches(container, current, onPick) {
   container.innerHTML = COLORS.map(c => `<button type="button" class="swatch${c === current ? " sel" : ""}" style="background:${c}" data-c="${c}" role="radio" aria-checked="${c === current}" aria-label="couleur"></button>`).join("");
   container.querySelectorAll(".swatch").forEach(b => b.onclick = () => { container.querySelectorAll(".swatch").forEach(x => x.classList.toggle("sel", x === b)); onPick(b.dataset.c); });
@@ -269,13 +343,13 @@ function showOnboard() {
 }
 function renderAll() {
   $("#onboard").hidden = true; $("#app").hidden = false;
-  $("#me-name").textContent = `${S.me.name}#${S.me.tag}`; setAv($("#me-av"), S.me);
+  $("#me-name").textContent = S.me.name; setAv($("#me-av"), S.me);
   renderContacts(); renderRelays(); renderChat();
 }
 function statusOf(c) {
   const l = S.links.get(c.id);
-  if (c.pending) return { k: "off", t: "invitation en attente" };
-  if (l?.open) return { k: "direct", t: "tunnel direct" };
+  if (c.pending) return { k: "off", t: "en attente de sa réponse" };
+  if (l?.open) return { k: "direct", t: "⚡ en direct" };
   if (isOnline(c)) return { k: "relay", t: "en ligne" };
   return { k: "off", t: "hors ligne" };
 }
@@ -289,14 +363,17 @@ function renderContacts() {
     const li = document.createElement("li"); li.className = "contact" + (S.active === c.id ? " active" : "");
     const st = statusOf(c);
     const sub = c.pending ? st.t : (c.last ? esc(c.last) : st.t);
-    li.innerHTML = `<span class="av${st.k !== "off" ? " on" : ""}"></span><div class="cbody"><div class="cname">${esc(c.name)}<span class="tag">#${esc(c.tag)}</span></div><div class="cst${st.k === "direct" ? " on" : ""}">${sub}</div></div>${c.unread ? `<span class="badge">${c.unread}</span>` : ""}`;
+    li.innerHTML = `<span class="av${st.k !== "off" ? " on" : ""}"></span><div class="cbody"><div class="cname">${esc(c.name)}${c.verified ? ' <span class="tag" title="vérifié">✓</span>' : ""}</div><div class="cst${st.k === "direct" ? " on" : ""}">${sub}</div></div>${c.unread ? `<span class="badge">${c.unread}</span>` : ""}`;
     setAv(li.querySelector(".av"), c);
     li.onclick = () => openChat(c.id);
     ul.appendChild(li);
   }
-  const anyOpen = S.pool && S.pool.states().some(s => s.open);
-  $("#relay-dot").className = "dot" + (anyOpen ? " on" : "");
-  $("#relay-txt").textContent = anyOpen ? "répondeur joignable" : "aucun répondeur joignable — les messages attendront ici";
+  // État « hors ligne » sans jargon : est-ce que quelqu'un garde mes messages quand je suis absent ?
+  const carriersOn = S.carriers.filter(cid => S.links.get(cid)?.open).length, ws = S.pool && S.pool.wsOpen();
+  const ok = ws || carriersOn > 0;
+  $("#relay-dot").className = "dot" + (ok ? " on" : "");
+  $("#relay-txt").textContent = ok ? "Prêt" : S.contacts.size ? "Tes messages arriveront quand tu seras en ligne" : "Ajoute un contact pour commencer";
+  $("#side-foot").title = ok ? "Tes messages en attente sont gardés chiffrés" + (carriersOn ? " par " + S.carriers.filter(cid => S.links.get(cid)?.open).map(cid => S.contacts.get(cid)?.name).join(", ") : " par un point de rendez-vous") : "";
 }
 async function openChat(id) {
   S.active = id; const c = S.contacts.get(id);
@@ -316,10 +393,10 @@ async function renderChat() {
   const c = S.contacts.get(S.active); const box = $("#messages");
   $("#chat-empty").hidden = !!c; $("#chat-view").hidden = !c;
   if (!c) return;
-  $("#chat-title").textContent = `${c.name}#${c.tag}`; setAv($("#chat-av"), c);
+  $("#chat-title").textContent = c.name; setAv($("#chat-av"), c);
   const st = statusOf(c);
   $("#chat-pill").textContent = st.t; $("#chat-pill").className = "pill " + st.k;
-  $("#chat-sub").textContent = c.pending ? "elle/il doit encore accepter ton lien" : st.k === "direct" ? "le répondeur ne voit rien passer — fichiers illimités" : st.k === "relay" ? "messages déposés chiffrés au répondeur" : "les messages attendent au répondeur jusqu'à sa connexion";
+  $("#chat-sub").textContent = c.pending ? "elle/il doit encore accepter ton lien" : st.k === "direct" ? "connexion directe, fichiers sans limite" : st.k === "relay" ? "chiffré de bout en bout" : "tes messages l'attendront";
   $("#attach").classList.toggle("off", st.k !== "direct");
   const seq = ++_renderSeq;
   const msgs = (await C.store.byContact("messages", c.id)).sort((a, b) => a.ts - b.ts);
@@ -343,8 +420,7 @@ function toast(t, err) { const el = $("#toast"); el.textContent = t; el.classNam
 function notify(c, text) { if ((S.active !== c.id || document.hidden) && "Notification" in window && Notification.permission === "granted") new Notification(c.name, { body: text || "📎 fichier" }); }
 function askAccept(inv, sn) {
   return new Promise((res) => {
-    $("#acc-name").textContent = `${inv.name}#${inv.tag}`;
-    const g = sn.split(" "); $("#acc-sn").textContent = [g.slice(0, 4), g.slice(4, 8), g.slice(8, 12)].map(x => x.join("  ")).join("\n");
+    $("#acc-name").textContent = inv.name; setAv($("#acc-av"), { name: inv.name, color: inv.c });
     $("#accept").hidden = false;
     const done = (v) => { $("#accept").hidden = true; res(v); };
     $("#acc-ok").onclick = () => done(true); $("#acc-no").onclick = () => done(false);
@@ -357,15 +433,37 @@ function openInvite(tab) {
   if (tab === "inv-make" && !$("#invite-link").value) $("#invite-new").click();
   if (tab === "inv-join") $("#paste").focus();
 }
+async function openContact(id) {
+  const c = S.contacts.get(id); if (!c) return;
+  $("#contact").hidden = false; $("#ct-name").textContent = c.name; setAv($("#ct-av"), c); $("#ct-state").textContent = statusOf(c).t;
+  $("#ct-tag").textContent = `${c.name}#${c.tag}`; $("#ct-verified").textContent = c.verified ? "✓ vérifié" : "";
+  const xp = C.b64u.dec(c.xpub);
+  $("#ct-emo").textContent = await C.emojiFingerprint(S.me.x.pub, xp);
+  const g = (await C.safetyNumber(S.me.x.pub, xp)).split(" "); $("#ct-sn").textContent = [g.slice(0, 4), g.slice(4, 8), g.slice(8, 12)].map(x => x.join("  ")).join("\n");
+  $("#ct-verify").onclick = async () => { c.verified = true; await C.store.put("contacts", c); $("#ct-verified").textContent = "✓ vérifié"; renderContacts(); toast("Contact vérifié"); };
+  $("#ct-rename").onclick = async () => { const n = prompt("Nom affiché chez toi pour ce contact :", c.name); if (n && n.trim()) { c.name = n.trim().slice(0, 24); await C.store.put("contacts", c); renderAll(); $("#ct-name").textContent = c.name; } };
+  $("#ct-delete").onclick = async () => {
+    if (!confirm(`Retirer ${c.name} de ton cercle ? Les messages échangés seront effacés ici.`)) return;
+    for (const m of await C.store.byContact("messages", c.id)) await C.store.del("messages", m.id);
+    for (const o of await C.store.byContact("outbox", c.id)) await C.store.del("outbox", o.id);
+    await C.store.del("contacts", c.id); S.contacts.delete(c.id); S.links.get(c.id)?.teardown(); S.links.delete(c.id);
+    delete S.me.pickups[c.id]; await C.kv.set("me", S.me);
+    $("#contact").hidden = true; if (S.active === c.id) S.active = null; renderAll(); pickCarriers();
+  };
+}
 function openSettings() {
-  $("#settings").hidden = false; $("#set-name").value = S.me.name; $("#set-tag").textContent = S.me.tag;
-  swatches($("#set-colors"), colorOf(S.me), async (c) => { S.me.color = c; await C.kv.set("me", S.me); renderAll(); broadcast({ t: "profile", name: S.me.name, color: c }); });
+  $("#settings").hidden = false; $("#set-name").value = S.me.name; $("#set-tag").textContent = `${S.me.name}#${S.me.tag}`;
+  setAv($("#set-av"), S.me);
+  swatches($("#set-colors"), colorOf(S.me), async (c) => { S.me.color = c; await C.kv.set("me", S.me); renderAll(); setAv($("#set-av"), S.me); broadcast({ t: "profile", name: S.me.name, color: c }); });
+  const names = S.carriers.map(cid => S.contacts.get(cid)?.name).filter(Boolean);
+  $("#set-carry").textContent = names.length ? `Quand tu es absent, tes messages sont gardés chiffrés chez ${names.join(" et ")} (choisis automatiquement : tes contacts les plus récents). Eux ne peuvent pas les lire.`
+    : S.contacts.size ? "Dès qu'un contact aura accepté, il gardera tes messages chiffrés quand tu es absent — automatiquement." : "Ajoute un contact : ton cercle gardera tes messages quand tu es absent, sans rien régler.";
   renderRelays();
 }
 async function renameMe(name) {
   name = name.trim(); if (!name || name === S.me.name) return;
-  S.me.name = name; await C.kv.set("me", S.me); renderAll();
-  broadcast({ t: "profile", name, color: colorOf(S.me) }); toast("Nom mis à jour — tes contacts le verront à leur prochaine connexion");
+  S.me.name = name; await C.kv.set("me", S.me); renderAll(); $("#set-tag").textContent = `${S.me.name}#${S.me.tag}`;
+  broadcast({ t: "profile", name, color: colorOf(S.me) }); toast("Nom mis à jour");
 }
 
 // ── Événements ──
@@ -385,6 +483,14 @@ $("#invite-new").onclick = async () => { $("#invite-link").value = await makeInv
 $("#invite-copy").onclick = async () => { try { await navigator.clipboard.writeText($("#invite-link").value); toast("Lien copié — valable une fois"); } catch { $("#invite-link").select(); toast("Sélectionne et copie le lien (Ctrl+C)"); } };
 $("#paste-go").onclick = async () => { const v = $("#paste").value.trim(); const i = v.indexOf("#i/"); if (i < 0) return toast("Ce n'est pas un lien d'invitation Krypty", true); $("#invite").hidden = true; await acceptInvite(v.slice(i + 3)); $("#paste").value = ""; };
 $("#btn-settings").onclick = openSettings;
+$("#btn-contact").onclick = () => { if (S.active) openContact(S.active); };
+$("#ct-close").onclick = () => $("#contact").hidden = true;
+$("#photo-file").onchange = async (e) => {
+  const f = e.target.files[0]; e.target.value = ""; if (!f) return;
+  try { S.me.photo = await C.resizePhoto(f); await C.kv.set("me", S.me); renderAll(); setAv($("#set-av"), S.me); broadcast({ t: "profile", name: S.me.name, color: colorOf(S.me), photo: S.me.photo }); toast("Photo mise à jour"); }
+  catch { toast("Image illisible", true); }
+};
+$("#photo-rm").onclick = async () => { S.me.photo = null; await C.kv.set("me", S.me); renderAll(); setAv($("#set-av"), S.me); broadcast({ t: "profile", name: S.me.name, color: colorOf(S.me), photo: null }); };
 $("#set-close").onclick = () => $("#settings").hidden = true;
 $("#set-name-ok").onclick = () => renameMe($("#set-name").value);
 $("#set-name").onkeydown = (e) => { if (e.key === "Enter") renameMe(e.target.value); };
@@ -403,4 +509,5 @@ $("#import-file").onchange = async (e) => {
 };
 $("#btn-wipe").onclick = async () => { if (confirm("Tout effacer sur cet appareil ? Identité, contacts, messages — sans sauvegarde, c'est définitif.")) { await C.wipe(); location.hash = ""; location.reload(); } };
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") $$(".modal").forEach(m => m.hidden = true); });
+if (["localhost", "127.0.0.1"].includes(location.hostname)) window.K = S;   // inspection en dev uniquement
 boot();

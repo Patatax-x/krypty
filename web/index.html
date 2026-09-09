@@ -24,7 +24,7 @@
     <div class="swatches" id="ob-colors" role="radiogroup" aria-label="Couleur de l'avatar"></div>
 
     <button id="ob-go" class="primary big">Créer mon identité</button>
-    <p class="fine">Un tag à 4 caractères dérivé de votre clé sera ajouté (ex : <b>Nyx#7F3A</b>). Rien n'est envoyé nulle part.</p>
+    <p class="fine">Rien n'est envoyé nulle part. Vous pourrez changer le nom, la couleur et ajouter une photo plus tard.</p>
     <p class="fine"><a href="#" id="ob-import">J'ai déjà une identité → restaurer une sauvegarde</a></p>
   </div>
 </section>
@@ -41,8 +41,8 @@
     </header>
     <div class="search"><input id="search" placeholder="Rechercher un contact" autocomplete="off"></div>
     <ul id="contacts" aria-label="Contacts"></ul>
-    <footer class="side-foot">
-      <span class="dot" id="relay-dot"></span><span id="relay-txt" class="mini">répondeur…</span>
+    <footer class="side-foot" id="side-foot" title="">
+      <span class="dot" id="relay-dot"></span><span id="relay-txt" class="mini">…</span>
     </footer>
   </aside>
 
@@ -50,7 +50,7 @@
     <div id="chat-empty" class="empty-main">
       <div class="ob-logo small" aria-hidden="true">K</div>
       <h2>Ton cercle est vide</h2>
-      <p>Invite quelqu'un : envoie-lui un lien par n'importe quel canal. Le lien contient tes clés publiques et une boîte d'accueil à usage unique.</p>
+      <p>Invite quelqu'un : envoie-lui un lien par n'importe quel canal. Une fois accepté, vous êtes reliés, et personne d'autre ne le sait.</p>
       <div class="row center">
         <button class="primary" id="empty-invite">＋ Créer une invitation</button>
         <button id="empty-join">Coller un lien reçu</button>
@@ -59,8 +59,10 @@
     <div id="chat-view" hidden>
       <header class="chat-head">
         <button id="btn-back" class="icon" aria-label="Retour" title="Retour">‹</button>
-        <span class="av" id="chat-av">?</span>
-        <div class="chat-title"><b id="chat-title">—</b><span id="chat-sub" class="mini">—</span></div>
+        <button class="who" id="btn-contact" title="Fiche du contact">
+          <span class="av" id="chat-av">?</span>
+          <div class="chat-title"><b id="chat-title">—</b><span id="chat-sub" class="mini">—</span></div>
+        </button>
         <span id="chat-pill" class="pill"></span>
       </header>
       <div id="messages"></div>
@@ -86,7 +88,7 @@
         <div class="row"><button class="primary" id="invite-copy">Copier le lien</button><button id="invite-new">Nouveau lien</button></div>
       </div>
       <div id="inv-join" class="tabpane" hidden>
-        <p class="mini">Colle le lien reçu. Tu verras son nom et un numéro de sécurité à comparer avant d'accepter.</p>
+        <p class="mini">Colle le lien reçu. Tu verras qui t'invite avant d'accepter.</p>
         <textarea id="paste" rows="4" placeholder="https://…/#i/…"></textarea>
         <div class="row"><button class="primary" id="paste-go">Vérifier le lien</button></div>
       </div>
@@ -96,10 +98,26 @@
   <!-- Confirmation d'ajout (numéro de sécurité) -->
   <div id="accept" class="modal" hidden>
     <div class="box">
-      <h3>Ajouter <span id="acc-name">—</span> ?</h3>
-      <p class="mini">Numéro de sécurité de votre paire. S'il est identique des deux côtés, personne n'est au milieu. Vous pourrez le revérifier plus tard.</p>
-      <pre id="acc-sn" class="sn"></pre>
-      <div class="row"><button class="primary" id="acc-ok">Ajouter à mon cercle</button><button id="acc-no">Annuler</button></div>
+      <div class="who-big"><span class="av big" id="acc-av">?</span><div><b id="acc-name">—</b><div class="mini">t'invite dans son cercle</div></div></div>
+      <p class="mini">Vous pourrez comparer vos 5 symboles de vérification plus tard, dans sa fiche. Personne d'autre ne saura que vous êtes en contact.</p>
+      <div class="row"><button class="primary big grow" id="acc-ok">Ajouter</button><button id="acc-no">Annuler</button></div>
+    </div>
+  </div>
+
+  <!-- Fiche contact -->
+  <div id="contact" class="modal" hidden>
+    <div class="box">
+      <div class="tabs"><b class="grow">Contact</b><button class="x" id="ct-close" aria-label="Fermer">✕</button></div>
+      <div class="who-big"><span class="av big" id="ct-av">?</span><div><b id="ct-name">—</b><div class="mini" id="ct-state">—</div></div></div>
+      <h3>Vérification</h3>
+      <p class="mini">Ces 5 symboles sont calculés à partir de vos deux clés. S'ils sont identiques chez lui, personne ne s'est glissé entre vous.</p>
+      <div class="emo" id="ct-emo">—</div>
+      <div class="row"><button class="small" id="ct-verify">Nous avons comparé, c'est identique</button><span class="mini" id="ct-verified"></span></div>
+      <details class="adv"><summary>Détails techniques</summary>
+        <p class="mini">Identifiant : <code id="ct-tag">—</code><br>Numéro de sécurité :</p><pre id="ct-sn" class="sn small"></pre>
+      </details>
+      <h3>Actions</h3>
+      <div class="row wrap"><button class="small" id="ct-rename">Renommer chez moi</button><button class="small danger" id="ct-delete">Retirer du cercle</button></div>
     </div>
   </div>
 
@@ -107,14 +125,18 @@
   <div id="settings" class="modal" hidden>
     <div class="box">
       <div class="tabs"><b class="grow">Réglages</b><button class="x" id="set-close" aria-label="Fermer">✕</button></div>
-      <h3>Identité</h3>
-      <div class="row"><input id="set-name" maxlength="24" placeholder="Nom affiché"><button id="set-name-ok" class="small">Renommer</button></div>
-      <div class="swatches" id="set-colors"></div>
-      <p class="mini">Tag : <b id="set-tag">—</b> · les contacts sont prévenus du changement de nom.</p>
+      <h3>Moi</h3>
+      <div class="who-big">
+        <label class="av big photo" id="set-av" title="Changer la photo"><span id="set-av-txt">?</span><input id="photo-file" type="file" accept="image/*" hidden></label>
+        <div class="grow">
+          <div class="row" style="margin-top:0"><input id="set-name" maxlength="24" placeholder="Nom affiché"><button id="set-name-ok" class="small">OK</button></div>
+          <div class="swatches" id="set-colors" style="margin-top:8px"></div>
+        </div>
+      </div>
+      <div class="row"><button class="small ghost" id="photo-rm">Retirer la photo</button><span class="mini">Nom, couleur et photo sont envoyés chiffrés à tes contacts, à personne d'autre.</span></div>
 
-      <h3>Répondeurs <span class="mini">— où tes messages attendent quand tu es hors ligne</span></h3>
-      <ul id="relays" class="relays"></ul>
-      <div class="row"><input id="relay-url" placeholder="ws://ip-ou-nom:8765"><button id="relay-add" class="small">Ajouter</button></div>
+      <h3>Hors ligne</h3>
+      <p class="mini" id="set-carry">—</p>
 
       <h3>Cet appareil</h3>
       <div class="row wrap">
@@ -124,6 +146,13 @@
         <button id="btn-wipe" class="small danger">Tout effacer</button>
       </div>
       <p class="mini">La sauvegarde (identité + contacts + messages) est chiffrée avec une phrase secrète. C'est le seul moyen de retrouver ton identité sur un autre appareil.</p>
+
+      <details class="adv"><summary>Avancé — points de rendez-vous</summary>
+        <p class="mini">Un point de rendez-vous est une petite boîte aux lettres publique (<code>relay.py</code>). Il n'en faut qu'un pour la toute première connexion entre deux personnes ; ensuite, le cercle porte tout seul. Il ne voit que des boîtes anonymes et des messages chiffrés.</p>
+        <ul id="relays" class="relays"></ul>
+        <div class="row"><input id="relay-url" placeholder="ws://ip-ou-nom:8765"><button id="relay-add" class="small">Ajouter</button></div>
+        <p class="mini">Identifiant de cet appareil : <code id="set-tag">—</code></p>
+      </details>
     </div>
   </div>
 
