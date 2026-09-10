@@ -17,6 +17,7 @@
     <div class="ob-logo" id="ob-logo" aria-hidden="true">K</div>
     <h1>Krypty</h1>
     <p class="tagline">La messagerie qui ne sait pas que vous existez.</p>
+    <div id="ob-invited" class="invited" hidden><span class="av" id="ob-inv-av">?</span><div><b id="ob-inv-name">…</b><div class="mini">t'invite dans son cercle. Choisis un nom, et tu seras relié.</div></div></div>
     <p class="sub">Pas de compte, pas de numéro, pas d'annuaire. Votre identité est une clé créée sur cet appareil, connue seulement des personnes que vous invitez.</p>
 
     <label for="ob-name">Nom affiché chez vos contacts</label>
@@ -26,7 +27,12 @@
 
     <button id="ob-go" class="primary big">Créer mon identité</button>
     <p class="fine">Rien n'est envoyé nulle part. Vous pourrez changer le nom, la couleur et ajouter une photo plus tard.</p>
-    <p class="fine"><a href="#" id="ob-import">J'ai déjà une identité → restaurer une sauvegarde</a></p>
+    <p class="fine"><a href="#" id="ob-import">J'ai déjà une identité : restaurer une sauvegarde</a></p>
+    <ol class="how">
+      <li><b>Une clé</b>, créée ici, jamais envoyée.</li>
+      <li><b>Un lien</b> à la personne, <b>un code</b> en retour.</li>
+      <li><b>En direct</b>, chiffré, sans serveur entre vous.</li>
+    </ol>
   </div>
 </section>
 
@@ -80,18 +86,25 @@
   <div id="invite" class="modal" hidden>
     <div class="box">
       <div class="tabs" role="tablist">
-        <button class="tab active" data-tab="inv-make" role="tab">Inviter</button>
-        <button class="tab" data-tab="inv-join" role="tab">Rejoindre</button>
+        <button class="tab active" data-tab="inv-make" role="tab">Relier quelqu'un</button>
+        <button class="tab" data-tab="inv-join" role="tab">J'ai reçu un lien ou un code</button>
         <button class="x" id="invite-close" aria-label="Fermer">✕</button>
       </div>
       <div id="inv-make" class="tabpane">
-        <p class="mini">Envoie ce lien à la personne par n'importe quel canal. Elle te renverra un <b>code de réponse</b> à coller dans « Rejoindre ». Valable une fois, tant que cet onglet reste ouvert (15 min). Rien de ce lien ne passe par un serveur.</p>
-        <textarea id="invite-link" readonly rows="4" aria-label="Lien d'invitation"></textarea>
-        <div class="row"><button class="primary" id="invite-copy">Copier le lien</button><button id="invite-new">Nouveau lien</button></div>
+        <ol class="steps">
+          <li class="on" id="st1"><span>1</span>Envoie ce lien</li>
+          <li id="st2"><span>2</span>Colle sa réponse</li>
+          <li id="st3"><span>3</span>Reliés</li>
+        </ol>
+        <div class="codebox"><span class="lock" aria-hidden="true">🔒</span><textarea id="invite-link" readonly rows="3" aria-label="Lien d'invitation"></textarea></div>
+        <div class="row"><button class="primary" id="invite-copy">Copier le lien</button><button id="invite-share" hidden>Partager…</button><button id="invite-new" class="ghost small">Nouveau lien</button></div>
+        <p class="mini">Par SMS, mail, n'importe quoi. La personne l'ouvre, choisit un nom, et te renvoie un code. Le lien ne passe par aucun serveur et vaut pour une seule personne, tant que cette page reste ouverte.</p>
+        <textarea id="invite-answer" rows="3" placeholder="Colle ici le code qu'elle te renvoie (commence par KR)"></textarea>
+        <div class="row"><button class="primary" id="invite-answer-go">Relier</button></div>
       </div>
       <div id="inv-join" class="tabpane" hidden>
-        <p class="mini">Colle un lien d'invitation, ou un code reçu (réponse d'invitation, demande ou réponse de connexion).</p>
-        <textarea id="paste" rows="4" placeholder="https://…/#i/…  ou  KR.…  KC.…  KA.…"></textarea>
+        <p class="mini">Colle un lien d'invitation ou un code. Astuce : dans Krypty, Ctrl+V n'importe où fait la même chose.</p>
+        <textarea id="paste" rows="4" placeholder="https://…/#i/…   ou   KR…  KC…  KA…"></textarea>
         <div class="row"><button class="primary" id="paste-go">Valider</button></div>
       </div>
     </div>
@@ -109,10 +122,11 @@
   <!-- Code à transmettre -->
   <div id="code" class="modal" hidden>
     <div class="box">
-      <div class="tabs"><b class="grow">Code à envoyer</b><button class="x" id="code-close" aria-label="Fermer">✕</button></div>
+      <div class="tabs"><b class="grow" id="code-title">Code à envoyer</b><button class="x" id="code-close" aria-label="Fermer">✕</button></div>
       <p class="mini" id="code-txt"></p>
-      <textarea id="code-val" readonly rows="5" aria-label="Code"></textarea>
-      <div class="row"><button class="primary" id="code-copy">Copier le code</button><button id="code-ok" class="ghost" onclick="document.getElementById('code').hidden=true">Fermer</button></div>
+      <div class="codebox"><span class="lock" aria-hidden="true">🔒</span><textarea id="code-val" readonly rows="4" aria-label="Code"></textarea></div>
+      <div class="row"><button class="primary" id="code-copy">Copier le code</button><button id="code-share" hidden>Partager…</button><button id="code-ok" class="ghost">Fermer</button></div>
+      <p class="mini">Chiffré pour son destinataire : n'importe qui peut le voir passer, personne d'autre ne peut l'utiliser.</p>
     </div>
   </div>
 
@@ -160,7 +174,7 @@
       <p class="mini">La sauvegarde (identité + contacts + messages) est chiffrée avec une phrase secrète. C'est le seul moyen de retrouver ton identité sur un autre appareil.</p>
 
       <details class="adv"><summary>Avancé</summary>
-        <label class="row" style="cursor:pointer"><input type="checkbox" id="stun" style="width:auto"><span class="mini">Aide à la connexion : demander son adresse à un serveur STUN public (Google ou Cloudflare). Sans ça, la connexion directe ne passe qu'en IPv6 ou sur le même réseau. Le serveur voit ton adresse IP, rien d'autre.</span></label>
+        <label class="row" style="cursor:pointer"><input type="checkbox" id="stun" style="width:auto"><span class="mini">Aide à la connexion (STUN). Pour traverser ta box, ton navigateur demande son adresse publique à un serveur STUN (Google ou Cloudflare) : une requête sans compte ni contenu, il voit ton adresse IP et rien d'autre. Décoché, la connexion directe ne marche que sur le même réseau.</span></label>
         <h3>Points de rendez-vous</h3>
         <p class="mini">Facultatif. Une petite boîte aux lettres (<code>relay.py</code>) chez un membre du cercle : reconnexion sans codes et messages gardés quand tout le monde est absent. Elle ne voit que des boîtes anonymes et des messages chiffrés.</p>
         <ul id="relays" class="relays"></ul>

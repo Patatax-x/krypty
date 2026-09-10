@@ -17,7 +17,7 @@ const S = {
   carrier: null,                    // je porte pour mes contacts (carry.js)
   carriers: [],                     // cids des contacts qui portent pour moi (choisis automatiquement)
   pendingInvites: new Map(),        // id d'invitation -> { link, created } : offre en attente d'une réponse
-  stun: false,                      // aide à la connexion (serveur STUN public) : désactivée par défaut
+  stun: true,                       // aide à la connexion (serveur STUN public, sans état) : le seul moyen de passer une box IPv4
 };
 const N_CARRIERS = 2, INVITE_TTL = 15 * 60 * 1000;
 const STUN = ["stun:stun.l.google.com:19302", "stun:stun.cloudflare.com:3478"];
@@ -36,7 +36,7 @@ async function boot() {
 function defaultRelays() { return ["localhost", "127.0.0.1"].includes(location.hostname) ? ["ws://" + location.hostname + ":8765"] : []; }
 
 async function start() {
-  S.stun = !!(await C.kv.get("stun")); Link.ice = S.stun ? STUN : [];
+  S.stun = (await C.kv.get("stun")) ?? true; Link.ice = S.stun ? STUN : [];
   S.pool = new RelayPool(onBlob, onRelayState, (cid) => new PeerRelay(cid, (id) => S.links.get(id), onBlob));
   S.carrier = new Carrier((cid, obj) => { const l = S.links.get(cid); return !!(l && l.open && l.send(JSON.stringify(obj))); });
   if (!S.me.pickups) S.me.pickups = {};
@@ -49,7 +49,7 @@ async function start() {
   await C.kv.set("welcome", w);
   for (const b of w) { S.welcome.set(b.box, b); S.pool.get(b.relay).subscribe(b.box, b.key, b.pub); }
   await pickCarriers(false);
-  renderAll();
+  renderAll(); $("#btn-invite").disabled = false; $("#empty-invite").disabled = false;
   setInterval(flushOutbox, 15000);
   setInterval(() => { for (const [i, p] of S.pendingInvites) if (Date.now() - p.created > INVITE_TTL) { p.link.teardown(); S.pendingInvites.delete(i); } }, 60000);
   setInterval(() => broadcast({ t: "hello", ts: Date.now() }), 25000);
@@ -238,7 +238,7 @@ function newLink(cid) {
       const c = S.contacts.get(l.cid); if (!c) return;
       if (["closed", "failed", "disconnected"].includes(st)) S.presence.delete(c.id);   // tunnel mort = plus « en ligne » tant qu'un hello ne revient pas
       renderContacts(); if (S.active === c.id) renderChat();
-      if (st === "open") { S.presence.set(c.id, Date.now()); S.carrier.onOpen(c.id); if (S.pool.has("peer:" + c.id)) S.pool.get("peer:" + c.id).resub(); flushOutbox(); toast(`Connecté à ${c.name}`); }
+      if (st === "open") { $("#invite").hidden = true; $("#code").hidden = true; setSteps(1); $("#invite-link").value = ""; S.presence.set(c.id, Date.now()); S.carrier.onOpen(c.id); if (S.pool.has("peer:" + c.id)) S.pool.get("peer:" + c.id).resub(); flushOutbox(); toast(`Connecté à ${c.name}`); }
     });
   return l;
 }
@@ -314,7 +314,7 @@ async function acceptInvite(code) {
     const l = getLink(c); l.polite = true;
     const a = await l.answerCode(inv.o);
     const code = "KR." + C.b64u.enc(S.me.x.pub) + "." + await C.seal(key, { t: "answer", i: inv.i, a, intro });
-    showCode(code, `Dernière étape : envoie ce code de réponse à ${inv.name}. Dès qu'elle ou il le colle dans Krypty, vous êtes reliés.`);
+    showCode(code, `Renvoie ce code à ${inv.name}, par le même canal. Dès qu'elle ou il le colle, vous êtes reliés en direct.`, "Ta réponse à " + inv.name);
   } else toast(`Demande envoyée à ${inv.name}, en attente de sa réponse`);
 }
 async function onIntro(w, blob) {
@@ -399,8 +399,11 @@ function swatches(container, current, onPick) {
   container.querySelectorAll(".swatch").forEach(b => b.onclick = () => { container.querySelectorAll(".swatch").forEach(x => x.classList.toggle("sel", x === b)); onPick(b.dataset.c); });
 }
 let _obColor = COLORS[Math.floor(Math.random() * COLORS.length)];
-function showOnboard() {
-  $("#onboard").hidden = false; $("#app").hidden = true;
+async function showOnboard() {
+  $("#onboard").hidden = false; $("#app").hidden = true; $("#btn-invite").disabled = true; $("#empty-invite").disabled = true;   // pas d'invitation avant la fin du démarrage
+  if (location.hash.startsWith("#i/")) {                       // arrivé par un lien : on montre qui invite
+    try { const inv = await C.unpackCode(location.hash.slice(3)); if (inv && inv.v === 3) { $("#ob-inv-name").textContent = String(inv.name || "Quelqu'un").slice(0, 24); setAv($("#ob-inv-av"), { name: inv.name, color: inv.c }); $("#ob-invited").hidden = false; } } catch {}
+  }
   $("#ob-logo").style.background = _obColor;
   swatches($("#ob-colors"), _obColor, (c) => { _obColor = c; $("#ob-logo").style.background = c; });
   $("#ob-name").oninput = () => { $("#ob-logo").textContent = initials($("#ob-name").value) || "K"; };
@@ -507,15 +510,26 @@ function askAccept(inv, sn) {
     $("#acc-ok").onclick = () => done(true); $("#acc-no").onclick = () => done(false);
   });
 }
-function showCode(code, text) {
-  $("#code-txt").textContent = text; $("#code-val").value = code; $("#code").hidden = false;
+function showCode(code, text, title = "Code à envoyer") {
+  $("#code-title").textContent = title; $("#code-txt").textContent = text; $("#code-val").value = code; $("#code").hidden = false;
+  $("#code-share").hidden = !navigator.share;
   navigator.clipboard?.writeText(code).then(() => toast("Code copié")).catch(() => {});
+}
+function setSteps(n) { [1, 2, 3].forEach(i => { const el = $("#st" + i); el.classList.toggle("on", i === n); el.classList.toggle("done", i < n); }); }
+async function share(text, title) { try { await navigator.share({ title, text }); return true; } catch { return false; } }
+// Un lien ou un code collé n'importe où dans l'app (hors champ de saisie) est pris en charge.
+async function handlePasted(v) {
+  v = String(v || "").trim(); if (!v) return false;
+  const i = v.indexOf("#i/");
+  if (i >= 0) { await acceptInvite(v.slice(i + 3).split(/\s/)[0]); return true; }
+  return acceptCode(v);
 }
 function openInvite(tab) {
   $("#invite").hidden = false;
   $$(".tab").forEach(t => t.classList.toggle("active", t.dataset.tab === tab));
   $("#inv-make").hidden = tab !== "inv-make"; $("#inv-join").hidden = tab !== "inv-join";
-  if (tab === "inv-make" && !$("#invite-link").value) $("#invite-new").click();
+  if (tab === "inv-make" && !$("#invite-link").value) { setSteps(1); $("#invite-new").click(); }
+  $("#invite-share").hidden = !navigator.share;
   if (tab === "inv-join") $("#paste").focus();
 }
 async function openContact(id) {
@@ -564,13 +578,25 @@ $("#empty-join").onclick = () => openInvite("inv-join");
 $$(".tab").forEach(t => t.onclick = () => openInvite(t.dataset.tab));
 $("#invite-close").onclick = () => $("#invite").hidden = true;
 $("#invite-new").onclick = async () => { $("#invite-link").value = "…"; $("#invite-link").value = await makeInvite(); };
-$("#invite-copy").onclick = async () => { try { await navigator.clipboard.writeText($("#invite-link").value); toast("Lien copié, valable une fois"); } catch { $("#invite-link").select(); toast("Sélectionne et copie le lien (Ctrl+C)"); } };
+$("#invite-copy").onclick = async () => { try { await navigator.clipboard.writeText($("#invite-link").value); toast("Lien copié. Étape suivante : attends son code."); setSteps(2); } catch { $("#invite-link").select(); toast("Sélectionne et copie le lien (Ctrl+C)"); } };
 $("#paste-go").onclick = async () => {
-  const v = $("#paste").value.trim(); const i = v.indexOf("#i/");
-  $("#invite").hidden = true; $("#paste").value = "";
-  if (i >= 0) await acceptInvite(v.slice(i + 3).split(/\s/)[0]);
-  else if (!(await acceptCode(v))) toast("Ni un lien d'invitation, ni un code Krypty", true);
+  const v = $("#paste").value; $("#invite").hidden = true; $("#paste").value = "";
+  if (!(await handlePasted(v))) toast("Ni un lien d'invitation, ni un code Krypty", true);
 };
+$("#invite-answer-go").onclick = async () => {
+  const v = $("#invite-answer").value; if (!v.trim()) return;
+  if (await handlePasted(v)) { $("#invite-answer").value = ""; setSteps(3); setTimeout(() => { $("#invite").hidden = true; setSteps(1); $("#invite-link").value = ""; }, 900); }
+  else toast("Ce n'est pas un code de réponse", true);
+};
+$("#invite-answer").oninput = () => { if ($("#invite-answer").value.trim()) setSteps(2); };
+$("#invite-share").onclick = () => share($("#invite-link").value, "Rejoins-moi sur Krypty");
+$("#code-share").onclick = () => share($("#code-val").value, "Code Krypty");
+$("#code-ok").onclick = () => $("#code").hidden = true;
+document.addEventListener("paste", async (e) => {
+  const t = e.target; if (t && (t.tagName === "TEXTAREA" || t.tagName === "INPUT")) return;
+  const v = e.clipboardData?.getData("text") || ""; if (!/#i\/|\bK[RCA]\./.test(v)) return;
+  e.preventDefault(); if (await handlePasted(v)) $$(".modal").forEach(m => { if (m.id !== "code" && m.id !== "accept") m.hidden = true; });
+});
 $("#btn-connect").onclick = async () => { const c = S.contacts.get(S.active); if (!c) return; showCode(await makeConnectCode(c), `Envoie ce code à ${c.name} par n'importe quel canal. Elle ou il te renverra un code de réponse : colle-le dans « Inviter, Rejoindre ». Valable tant que cet onglet reste ouvert.`); };
 $("#code-close").onclick = () => $("#code").hidden = true;
 $("#code-copy").onclick = async () => { try { await navigator.clipboard.writeText($("#code-val").value); toast("Code copié"); } catch { $("#code-val").select(); } };
@@ -603,5 +629,5 @@ $("#import-file").onchange = async (e) => {
 };
 $("#btn-wipe").onclick = async () => { if (confirm("Tout effacer sur cet appareil ? Identité, contacts, messages. Sans sauvegarde, c'est définitif.")) { await C.wipe(); location.hash = ""; location.reload(); } };
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") $$(".modal").forEach(m => m.hidden = true); });
-if (["localhost", "127.0.0.1"].includes(location.hostname)) window.K = S;   // inspection en dev uniquement
+window.K = S;   // état inspectable depuis la console (même origine seulement, rien de plus que ce que le script voit déjà)
 boot();

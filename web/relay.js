@@ -49,7 +49,7 @@ export class Relay {
   // reconnexion en cours) est mis en attente et part à l'ouverture — sinon il était perdu en silence.
   post(box, blob) {
     if (this.open) return this.send({ op: "post", box, blob });
-    if (!this.closed && this.ws && this.ws.readyState === 0 && this.pendingPosts.length < 200) { this.pendingPosts.push({ box, blob }); return true; }   // en cours de connexion seulement
+    if (!this.closed && this.ws && this.ws.readyState === 0 && this.pendingPosts.length < 200) this.pendingPosts.push({ box, blob });   // partira à l'ouverture, mais pas « déposé » pour autant
     return false;
   }
 }
