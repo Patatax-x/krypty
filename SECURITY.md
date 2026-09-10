@@ -11,8 +11,9 @@ l'adresse indiquée sur le profil GitHub du mainteneur. Merci de ne pas publier 
 
 - Contenu des messages, noms, photos : chiffrés de bout en bout (X25519 + HKDF-SHA256 + AES-256-GCM),
   clé dérivée localement des deux côtés, jamais transmise.
-- Points de rendez-vous et porteurs : ne voient que des identifiants de boîtes aléatoires et des
-  blobs chiffrés. Lire une boîte demande une signature Ed25519 ; poster est anonyme.
+- Porteurs et points de rendez-vous : ne voient que des identifiants de boîtes aléatoires et des
+  blobs chiffrés. Codes de connexion : offre WebRTC en clair dans le lien d'invitation (elle contient
+  vos adresses IP locales), réponse et codes suivants scellés avec la clé de conversation.
 - Invitations : signées Ed25519, refusées si modifiées.
 
 ## Ce qu'il ne garantit pas (encore)

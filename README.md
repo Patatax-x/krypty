@@ -2,74 +2,73 @@
 
 **La messagerie qui ne sait pas que vous existez.**
 
-Pas de compte, pas de numéro, pas d'annuaire, pas de serveur qui garde vos messages. Votre identité est
-une paire de clés créée dans votre navigateur. Vous invitez quelqu'un par un lien, vous parlez en direct
-quand vous êtes tous les deux en ligne, et quand l'un est absent, ce sont vos contacts qui gardent le
-message chiffré pour vous. **Le cercle est le relais.**
+Pas de compte, pas de numéro, pas d'annuaire, pas de serveur. Votre identité est une paire de clés créée
+dans votre navigateur. Vous invitez quelqu'un par un lien, la personne vous renvoie un code, et vous
+parlez en direct, de navigateur à navigateur. Quand l'un de vous est absent, ce sont vos contacts qui
+gardent le message chiffré. **Le cercle est le relais.** Rien à installer, aucun tiers.
 
-Site et application : voir la section « Essayer ». Documentation : `docs/`.
+Application : https://patatax-x.github.io/krypty/web/ · Documentation : https://patatax-x.github.io/krypty/
 
 ## Comment ça marche
 
 ```
- Alice ──── lien d'invitation (n'importe quel canal) ────▶ Bob
-        ◀── intro chiffrée, boîte d'accueil à usage unique ──
- Alice ◀════════ tunnel direct WebRTC (messages, fichiers) ════════▶ Bob
- Alice ──── blob chiffré déposé chez Chloé (contact commun) ──▶ … Bob revient ──▶ livré, effacé
+ Alice ──── lien d'invitation (offre de connexion incluse) ── n'importe quel canal ──▶ Bob
+ Alice ◀─── code de réponse ─────────────────────────────── n'importe quel canal ──── Bob
+ Alice ◀══════════════ tunnel direct WebRTC : messages, fichiers ═══════════════════▶ Bob
+ Alice ──── blob chiffré déposé chez Chloé (contact commun en ligne) ──▶ … Bob revient ──▶ livré, effacé
 ```
 
 | Brique | Rôle | Ce qu'elle voit |
 |---|---|---|
 | Identité | X25519 + Ed25519 générées par WebCrypto, stockées dans IndexedDB | Vous seul |
 | Clé de conversation | HKDF-SHA256(X25519(moi, lui)) → AES-256-GCM, dérivée localement | Les deux contacts |
-| Tunnel direct | WebRTC DataChannel, STUN public interchangeable | Rien : chiffré deux fois |
+| Tunnel direct (`web/link.js`) | WebRTC DataChannel. Ouvert par codes copiés-collés, ou par un contact déjà relié | Rien : chiffré deux fois |
 | Porteur (`web/carry.js`) | Un contact garde des boîtes anonymes pour ses contacts, par-dessus le tunnel | Ids de boîtes, blobs chiffrés, horaires |
-| Point de rendez-vous (`relay.py`, `relay-worker/`) | Boîtes anonymes pour la première connexion et la signalisation | Ids de boîtes, blobs chiffrés, horaires |
+| Point de rendez-vous (`relay.py`, facultatif) | Même chose, chez un membre du cercle qui veut bien lancer un script | Ids de boîtes, blobs chiffrés, horaires |
 
-Les porteurs sont choisis automatiquement : vos deux contacts les plus récents. Rien à configurer.
-Chaque message a un identifiant ; s'il arrive par plusieurs chemins, la première copie compte, les autres
-sont jetées et effacées.
+- **Codes** : une offre WebRTC complète tient en ~900 caractères une fois compressée. Le lien d'invitation
+  en contient une ; la réponse en est une autre, scellée pour l'inviteur. Pour se reconnecter plus tard :
+  « Se connecter » donne un code, l'autre renvoie le sien. Les deux doivent être en ligne.
+- **Cercle** : une fois relié à un contact, il transmet la signalisation vers vos contacts communs, et il
+  garde vos messages quand vous êtes absent. Les porteurs sont vos deux contacts les plus récents, choisis
+  automatiquement. Un message a un identifiant ; la première copie compte, les autres sont jetées.
+- **STUN** : désactivé par défaut. Sans lui, la connexion directe passe en IPv6 ou sur le même réseau.
+  Réglages, Avancé, pour l'activer (un serveur public voit alors votre IP, rien d'autre).
 
 ## Essayer
 
-En local, avec un point de rendez-vous sur votre machine :
+En ligne : ouvrir l'application dans deux navigateurs (ou une fenêtre normale et une privée).
+Sur l'un : « Inviter », copier le lien. Sur l'autre : « Rejoindre », coller, « Ajouter », copier le code
+de réponse. Sur le premier : « Rejoindre », coller le code. Vous êtes reliés.
+
+En local :
 
 ```bash
-pip install websockets cryptography
-python relay.py 8765          # point de rendez-vous, ~100 lignes
 python serve.py 8080          # sert web/ sans cache
 python serve.py 8081          # une deuxième origine = une deuxième identité dans le même navigateur
+python relay.py 8765          # facultatif : point de rendez-vous, ~100 lignes (pip install websockets cryptography)
 ```
-
-Ouvrir `http://localhost:8080` et `http://localhost:8081`. Sur l'un : « Inviter », copier le lien.
-Sur l'autre : « Rejoindre », coller, « Ajouter ». Fermer un onglet, écrire depuis l'autre, rouvrir.
-
-Depuis la version en ligne (GitHub Pages, servie en `https://`), le navigateur n'accepte que `wss://` ou
-`localhost` comme point de rendez-vous. `relay-worker/` déploie le même relais gratuitement sur
-Cloudflare Workers en une commande ; `DEPLOY.md` détaille le tout.
 
 ## Structure
 
 ```
 web/            l'application (HTML/CSS/JS, modules ES, aucune dépendance)
-  core.js         crypto, IndexedDB, sauvegarde chiffrée
-  relay.js        client du point de rendez-vous (WebSocket)
-  link.js         tunnel direct WebRTC, fichiers en chunks
+  core.js         crypto, IndexedDB, sauvegarde chiffrée, codes compressés
+  link.js         tunnel direct WebRTC : codes, signalisation, fichiers en chunks
   carry.js        porteur : boîtes pour les contacts, par-dessus le tunnel
+  relay.js        client d'un point de rendez-vous (WebSocket), facultatif
   app.js          protocole (invitation, cartes, outbox, présence) + interface
-relay.py        point de rendez-vous Python (websockets)
-relay-worker/   le même, pour Cloudflare Workers
+relay.py        point de rendez-vous Python, facultatif
 docs/           site de documentation (GitHub Pages)
 serve.py        serveur statique de développement
 ```
 
 ## Limites connues
 
-- Une identité vit sur un appareil. La sauvegarde chiffrée (`.krypty2`) permet de la déplacer ; deux
-  appareils actifs en même temps se partagent les boîtes sans se synchroniser.
+- Deux navigateurs ne peuvent pas se trouver seuls : la première connexion, et chaque reconnexion sans
+  contact commun en ligne, demande un échange de codes par un autre canal. C'est le prix du zéro serveur.
+- Une identité vit sur un appareil. La sauvegarde chiffrée (`.krypty2`) permet de la déplacer.
 - Pas de confidentialité persistante : la clé de paire est statique.
-- Deux navigateurs ne peuvent pas se trouver seuls : la signalisation WebRTC passe par un contact
-  commun déjà connecté, ou par un point de rendez-vous.
 - Fichiers uniquement en direct. Pas de groupes.
 
 Voir `SECURITY.md` pour le modèle de menace. Licence MIT.

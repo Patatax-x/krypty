@@ -51,7 +51,7 @@
     <div id="chat-empty" class="empty-main">
       <div class="ob-logo small" aria-hidden="true">K</div>
       <h2>Ton cercle est vide</h2>
-      <p>Invite quelqu'un : envoie-lui un lien par n'importe quel canal. Une fois accepté, vous êtes reliés, et personne d'autre ne le sait.</p>
+      <p>Invite quelqu'un : envoie-lui un lien, elle ou il te renvoie un code, et vous êtes reliés en direct. Aucun serveur entre vous, personne ne sait que vous vous parlez.</p>
       <div class="row center">
         <button class="primary" id="empty-invite">＋ Créer une invitation</button>
         <button id="empty-join">Coller un lien reçu</button>
@@ -64,6 +64,7 @@
           <span class="av" id="chat-av">?</span>
           <div class="chat-title"><b id="chat-title">&nbsp;</b><span id="chat-sub" class="mini">&nbsp;</span></div>
         </button>
+        <button id="btn-connect" class="small primary" hidden>Se connecter</button>
         <span id="chat-pill" class="pill"></span>
       </header>
       <div id="messages"></div>
@@ -84,14 +85,14 @@
         <button class="x" id="invite-close" aria-label="Fermer">✕</button>
       </div>
       <div id="inv-make" class="tabpane">
-        <p class="mini">Envoie ce lien à la personne (SMS, mail, Signal, papier…). Valable <b>une fois</b>. Ce qui suit le <code>#</code> ne quitte jamais le navigateur.</p>
+        <p class="mini">Envoie ce lien à la personne par n'importe quel canal. Elle te renverra un <b>code de réponse</b> à coller dans « Rejoindre ». Valable une fois, tant que cet onglet reste ouvert (15 min). Rien de ce lien ne passe par un serveur.</p>
         <textarea id="invite-link" readonly rows="4" aria-label="Lien d'invitation"></textarea>
         <div class="row"><button class="primary" id="invite-copy">Copier le lien</button><button id="invite-new">Nouveau lien</button></div>
       </div>
       <div id="inv-join" class="tabpane" hidden>
-        <p class="mini">Colle le lien reçu. Tu verras qui t'invite avant d'accepter.</p>
-        <textarea id="paste" rows="4" placeholder="https://…/#i/…"></textarea>
-        <div class="row"><button class="primary" id="paste-go">Vérifier le lien</button></div>
+        <p class="mini">Colle un lien d'invitation, ou un code reçu (réponse d'invitation, demande ou réponse de connexion).</p>
+        <textarea id="paste" rows="4" placeholder="https://…/#i/…  ou  KR.…  KC.…  KA.…"></textarea>
+        <div class="row"><button class="primary" id="paste-go">Valider</button></div>
       </div>
     </div>
   </div>
@@ -102,6 +103,16 @@
       <div class="who-big"><span class="av big" id="acc-av">?</span><div><b id="acc-name">&nbsp;</b><div class="mini">t'invite dans son cercle</div></div></div>
       <p class="mini">Vous pourrez comparer vos 5 symboles de vérification plus tard, dans sa fiche. Personne d'autre ne saura que vous êtes en contact.</p>
       <div class="row"><button class="primary big grow" id="acc-ok">Ajouter</button><button id="acc-no">Annuler</button></div>
+    </div>
+  </div>
+
+  <!-- Code à transmettre -->
+  <div id="code" class="modal" hidden>
+    <div class="box">
+      <div class="tabs"><b class="grow">Code à envoyer</b><button class="x" id="code-close" aria-label="Fermer">✕</button></div>
+      <p class="mini" id="code-txt"></p>
+      <textarea id="code-val" readonly rows="5" aria-label="Code"></textarea>
+      <div class="row"><button class="primary" id="code-copy">Copier le code</button><button id="code-ok" class="ghost" onclick="document.getElementById('code').hidden=true">Fermer</button></div>
     </div>
   </div>
 
@@ -148,8 +159,10 @@
       </div>
       <p class="mini">La sauvegarde (identité + contacts + messages) est chiffrée avec une phrase secrète. C'est le seul moyen de retrouver ton identité sur un autre appareil.</p>
 
-      <details class="adv"><summary>Avancé : points de rendez-vous</summary>
-        <p class="mini">Un point de rendez-vous est une petite boîte aux lettres publique (<code>relay.py</code>). Il n'en faut qu'un pour la toute première connexion entre deux personnes ; ensuite, le cercle porte tout seul. Il ne voit que des boîtes anonymes et des messages chiffrés.</p>
+      <details class="adv"><summary>Avancé</summary>
+        <label class="row" style="cursor:pointer"><input type="checkbox" id="stun" style="width:auto"><span class="mini">Aide à la connexion : demander son adresse à un serveur STUN public (Google ou Cloudflare). Sans ça, la connexion directe ne passe qu'en IPv6 ou sur le même réseau. Le serveur voit ton adresse IP, rien d'autre.</span></label>
+        <h3>Points de rendez-vous</h3>
+        <p class="mini">Facultatif. Une petite boîte aux lettres (<code>relay.py</code>) chez un membre du cercle : reconnexion sans codes et messages gardés quand tout le monde est absent. Elle ne voit que des boîtes anonymes et des messages chiffrés.</p>
         <ul id="relays" class="relays"></ul>
         <div class="row"><input id="relay-url" placeholder="ws://ip-ou-nom:8765"><button id="relay-add" class="small">Ajouter</button></div>
         <p class="mini">Identifiant de cet appareil : <code id="set-tag">&nbsp;</code></p>

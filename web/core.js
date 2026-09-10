@@ -160,3 +160,8 @@ export function resizePhoto(file, size = 96) {
     img.src = u;
   });
 }
+
+// ── Codes copiés-collés : JSON → deflate → base64url (une offre WebRTC de 1,5 Ko tient en ~900 caractères) ──
+async function pipe(stream, bytes) { const w = stream.writable.getWriter(); w.write(bytes); w.close(); return new Uint8Array(await new Response(stream.readable).arrayBuffer()); }
+export async function packCode(obj) { return b64u.enc(await pipe(new CompressionStream("deflate-raw"), te.encode(JSON.stringify(obj)))); }
+export async function unpackCode(s) { return JSON.parse(td.decode(await pipe(new DecompressionStream("deflate-raw"), b64u.dec(s)))); }

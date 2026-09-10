@@ -53,26 +53,23 @@ Krypty part du principe inverse : <b>aucune machine n'a besoin de savoir que vou
 <div class="grid">
   <div class="card"><b>Pas de compte</b><p>Votre identité est une paire de clés créée sur votre appareil. Pas de numéro, pas de mail, pas de mot de passe.</p></div>
   <div class="card"><b>Pas d'annuaire</b><p>On ne vous « trouve » pas. Vous invitez quelqu'un avec un lien à usage unique, envoyé par le canal de votre choix.</p></div>
-  <div class="card"><b>Pas de serveur central</b><p>Quand deux personnes sont en ligne, elles se parlent en direct. Sinon, le message chiffré attend dans un « répondeur » que n'importe qui peut héberger.</p></div>
-  <div class="card"><b>Le cercle est le relais</b><p>Votre répondeur peut tourner chez vous, chez un ami, sur un Raspberry. Le réseau, c'est vos contacts.</p></div>
+  <div class="card"><b>Pas de serveur du tout</b><p>Vous vous connectez de navigateur à navigateur en échangeant deux codes par le canal de votre choix. Ensuite, tout passe en direct.</p></div>
+  <div class="card"><b>Le cercle est le relais</b><p>Quand vous êtes absent, vos contacts gardent vos messages chiffrés, sans pouvoir les lire. Le réseau, c'est vos contacts.</p></div>
 </div>
 
 <h2>Comment ça marche</h2>
 <div class="diagram"><pre>
-  Alice                          Répondeur (aveugle)                        Bob
-  ─────                          ───────────────────                        ───
-  lien #i/… ─── n'importe quel canal (SMS, mail, papier) ───────────────────▶ colle
-                                                                             │ vérifie la signature
-                                                                             │ numéro de sécurité
-                        ◀── intro chiffrée dans la boîte d'accueil ──────────┘
-  crée le contact
-  intro‑ack chiffré ──▶ boîte de Bob ───────────────────────────────────────▶ contact prêt
-
-  message ✓ ─────────▶ boîte de Bob (blob opaque, id aléatoire) ───────────▶ lu → ack → effacé ✓✓
-  ⚡ tunnel direct (WebRTC) ◀════════════════════════════════════════════════▶ fichiers, sans limite
+  Alice                                                                     Bob
+  ─────                                                                     ───
+  lien d'invitation (clés + offre de connexion) ── SMS, mail, papier ──────▶ colle, vérifie la signature
+                                                                             │ « Ajouter »
+                   ◀── code de réponse (scellé pour Alice) ── même canal ────┘
+  colle
+  ⚡ tunnel direct (WebRTC) ◀════════════════════════════════════════════════▶ messages, fichiers
+  message ✓ ─────────▶ chez Chloé, contact commun en ligne (blob chiffré) ──▶ Bob revient : lu → effacé ✓✓
 </pre></div>
-<p>Le répondeur ne voit que des <b>identifiants de boîtes aléatoires</b> et des <b>blobs chiffrés</b>. Il ne sait ni qui écrit, ni qui lit,
-ni ce qui est écrit. Il efface chaque blob à la lecture, ou après 15 jours.</p>
+<p>Personne d'autre que vous deux ne participe. Un contact commun qui « porte » un message ne voit qu'un
+<b>identifiant de boîte aléatoire</b> et un <b>blob chiffré</b> qu'il ne peut pas ouvrir. Il l'efface à la lecture, ou après 15 jours.</p>
 
 <h3>Chiffrement</h3>
 <table>
@@ -80,7 +77,8 @@ ni ce qui est écrit. Il efface chaque blob à la lecture, ou après 15 jours.</
 <tr><td>Identité</td><td>X25519 (échange de clés) + Ed25519 (signature), générées par le navigateur (WebCrypto), jamais exportées sauf dans votre sauvegarde chiffrée.</td></tr>
 <tr><td>Clé de conversation</td><td>HKDF‑SHA256(X25519(moi, lui)) → AES‑256‑GCM. Dérivée localement des deux côtés, jamais transmise.</td></tr>
 <tr><td>Invitation</td><td>Clés publiques + boîte d'accueil, signées Ed25519. Un lien modifié est refusé.</td></tr>
-<tr><td>Lecture des boîtes</td><td>Chaque boîte a sa propre clé Ed25519 ; le répondeur exige une signature d'un nonce pour la lire. Poster ne demande rien.</td></tr>
+<tr><td>Codes de connexion</td><td>Offre et réponse WebRTC compressées ; la réponse et les codes de reconnexion sont scellés avec la clé de conversation.</td></tr>
+<tr><td>Boîtes chez un porteur</td><td>Identifiant aléatoire, blob chiffré pour le destinataire. Le porteur efface à l'acquittement.</td></tr>
 <tr><td>Numéro de sécurité</td><td>60 chiffres dérivés des deux clés publiques, identique des deux côtés si personne n'est au milieu.</td></tr>
 <tr><td>Sauvegarde</td><td>AES‑256‑GCM, clé dérivée d'une phrase secrète (PBKDF2 300 000 itérations).</td></tr>
 </table>
@@ -88,23 +86,23 @@ ni ce qui est écrit. Il efface chaque blob à la lecture, ou après 15 jours.</
 <h2>Utiliser</h2>
 <h3>Dans le navigateur</h3>
 <ol>
-<li>Ouvrir l'application, choisir un nom et une couleur. Un tag (<code>Nyx#7F3A</code>) est dérivé de votre clé.</li>
-<li><b>＋ Inviter</b> → copier le lien → l'envoyer. L'autre le colle dans <b>Rejoindre</b>, compare le numéro de sécurité, accepte.</li>
-<li>Écrire. ⏳ en attente d'un répondeur · ✓ déposé · ✓✓ lu · ⚡ passé en direct.</li>
+<li>Ouvrir l'application, choisir un nom et une couleur. Rien n'est envoyé nulle part.</li>
+<li><b>＋ Inviter</b>, copier le lien, l'envoyer. L'autre le colle dans <b>Rejoindre</b>, clique <b>Ajouter</b>, et vous renvoie le code de réponse. Vous le collez dans <b>Rejoindre</b>. Reliés.</li>
+<li>Écrire. ⏳ en attente · ✓ déposé chez un contact · ✓✓ lu · ⚡ en direct.</li>
+<li>Plus tard, si vous êtes tous les deux hors ligne : <b>Se connecter</b> donne un code, l'autre renvoie le sien. Si un contact commun est en ligne, c'est automatique.</li>
 </ol>
-<h3>Héberger un répondeur (optionnel, ~100 lignes de Python)</h3>
+<h3>Facultatif : un point de rendez-vous chez un membre du cercle</h3>
 <pre>pip install websockets cryptography
 python relay.py 8765</pre>
-<p>Puis dans l'app : Réglages → Répondeurs → <code>ws://localhost:8765</code>. Vos contacts sont prévenus automatiquement et
-déposeront aussi chez vous. Depuis une page en <code>https://</code>, seuls <code>localhost</code> et les <code>wss://</code> sont acceptés
-par le navigateur (voir <code>DEPLOY.md</code> pour un tunnel gratuit).</p>
+<p>~100 lignes de Python. Reconnexion sans codes et messages gardés quand tout le monde est absent. Dans l'app : Réglages, Avancé.
+Il ne voit que des boîtes anonymes et des blobs chiffrés.</p>
 
 <h2>Limites connues (honnêtement)</h2>
 <ul>
 <li><b>Une identité = un appareil</b>, sauf si vous exportez une sauvegarde et la restaurez ailleurs. Deux appareils actifs en même temps se partagent les messages sans se synchroniser : le premier qui lit efface.</li>
 <li><b>Pas de forward secrecy</b> pour l'instant : la clé de paire est statique. Une clé privée volée déchiffre l'historique capturé.</li>
 <li><b>Le cercle porte</b> : vos deux contacts les plus récents gardent vos messages chiffrés quand vous êtes absent, automatiquement. Ils ne peuvent pas les lire. Un porteur hostile peut au pire jeter un message : c'est pour ça qu'il y en a deux.</li>
-<li><b>Il faut un point de rendez-vous</b> pour que deux navigateurs se trouvent la première fois (ou après un redémarrage sans contact commun en ligne). Il ne voit que des boîtes anonymes et des blobs chiffrés.</li>
+<li><b>Deux navigateurs ne peuvent pas se trouver seuls</b> : la première connexion, et chaque reconnexion sans contact commun en ligne, passe par un échange de codes. Sans serveur STUN (désactivé par défaut), la connexion directe demande l'IPv6 ou le même réseau.</li>
 <li><b>Fichiers</b> : uniquement en direct (tunnel). Hors ligne, seuls les textes attendent.</li>
 <li><b>Pas de groupes</b> dans cette version.</li>
 <li>Perdre l'appareil sans sauvegarde = perdre l'identité. Les contacts devront vous ré‑inviter.</li>
