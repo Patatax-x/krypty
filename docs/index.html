@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="Krypty — messagerie chiffrée sans compte, sans annuaire, sans serveur qui garde vos messages. Le cercle est le relais.">
-<title>Krypty — Documentation</title>
+<meta name="description" content="Krypty : messagerie chiffrée sans compte, sans annuaire, sans serveur qui garde vos messages. Le cercle est le relais.">
+<title>Documentation Krypty</title>
 <style>
 :root { --bg:#0D0D0F; --surface:#161618; --border:#29292D; --accent:#30D158; --accent-ink:#062A12; --text:#F2F2F2; --dim:#A8ADA9; --muted:#73737A; --code:#1C1C1F; }
 @media (prefers-color-scheme: light) { :root { --bg:#F3F5F2; --surface:#FFFFFF; --border:#D8DED7; --accent:#1E9E45; --accent-ink:#fff; --text:#15181A; --dim:#4E5651; --muted:#7A827D; --code:#EEF1ED; } }
@@ -81,7 +81,7 @@ ni ce qui est écrit. Il efface chaque blob à la lecture, ou après 15 jours.</
 <tr><td>Clé de conversation</td><td>HKDF‑SHA256(X25519(moi, lui)) → AES‑256‑GCM. Dérivée localement des deux côtés, jamais transmise.</td></tr>
 <tr><td>Invitation</td><td>Clés publiques + boîte d'accueil, signées Ed25519. Un lien modifié est refusé.</td></tr>
 <tr><td>Lecture des boîtes</td><td>Chaque boîte a sa propre clé Ed25519 ; le répondeur exige une signature d'un nonce pour la lire. Poster ne demande rien.</td></tr>
-<tr><td>Numéro de sécurité</td><td>60 chiffres dérivés des deux clés publiques — identique des deux côtés si personne n'est au milieu.</td></tr>
+<tr><td>Numéro de sécurité</td><td>60 chiffres dérivés des deux clés publiques, identique des deux côtés si personne n'est au milieu.</td></tr>
 <tr><td>Sauvegarde</td><td>AES‑256‑GCM, clé dérivée d'une phrase secrète (PBKDF2 300 000 itérations).</td></tr>
 </table>
 
@@ -111,6 +111,6 @@ par le navigateur (voir <code>DEPLOY.md</code> pour un tunnel gratuit).</p>
 </ul>
 
 </main>
-<footer>Krypty 2 — prototype. Code source ouvert. Aucune télémétrie.</footer>
+<footer>Krypty 2, prototype. Code source ouvert. Aucune télémétrie.</footer>
 </body>
 </html>

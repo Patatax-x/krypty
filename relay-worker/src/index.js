@@ -29,8 +29,7 @@ export class Relay {
     this.state = state;
     this.boxes = new Map();     // box -> Map(mid -> { exp, blob })
     this.owners = new Map();    // box -> { pub, at }
-    this.subs = new Map();      // box -> Set(ws)
-    this.meta = new WeakMap();  // ws -> { nonce, mine: Set(box) }
+    // Par WebSocket (survit à l'hibernation) : { nonce, mine: [box] } via serializeAttachment.
     this.state.blockConcurrencyWhile(async () => {
       const saved = await this.state.storage.get(["boxes", "owners"]);
       for (const [b, list] of Object.entries(saved.get("boxes") || {})) this.boxes.set(b, new Map(Object.entries(list)));
@@ -50,14 +49,14 @@ export class Relay {
   async fetch() {
     const pair = new WebSocketPair(); const [client, server] = Object.values(pair);
     this.state.acceptWebSocket(server);
-    const nonce = crypto.getRandomValues(new Uint8Array(32));
-    this.meta.set(server, { nonce, mine: new Set() });
-    server.send(JSON.stringify({ op: "challenge", nonce: b64(nonce) }));
+    const nonce = b64(crypto.getRandomValues(new Uint8Array(32)));
+    server.serializeAttachment({ nonce, mine: [] });
+    server.send(JSON.stringify({ op: "challenge", nonce }));
     return new Response(null, { status: 101, webSocket: client });
   }
   async webSocketMessage(ws, raw) {
     let m; try { m = JSON.parse(raw); } catch { return; }
-    const me = this.meta.get(ws) || { nonce: new Uint8Array(32), mine: new Set() };
+    const me = ws.deserializeAttachment() || { nonce: "", mine: [] };
     const box = String(m.box || "").slice(0, 64);
     if (m.op === "post" && box) {
       const blob = String(m.blob || "");
@@ -65,21 +64,20 @@ export class Relay {
       if (blob.length > MAX_BLOB * 4 / 3 + 4 || list.size >= MAX_PER_BOX) return;
       const mid = b64(crypto.getRandomValues(new Uint8Array(9)));
       list.set(mid, { exp: Date.now() + TTL_MS, blob }); this.boxes.set(box, list);
-      for (const s of this.subs.get(box) || []) try { s.send(JSON.stringify({ op: "msg", box, mid, blob })); } catch {}
+      for (const s of this.subscribers(box)) try { s.send(JSON.stringify({ op: "msg", box, mid, blob })); } catch {}
       await this.persist();
     } else if (m.op === "sub" && box) {
       let pub, ok = false;
       try {
         pub = unb64(m.pub); const sig = unb64(m.sig);
         const key = await crypto.subtle.importKey("raw", pub, { name: "Ed25519" }, false, ["verify"]);
-        ok = await crypto.subtle.verify({ name: "Ed25519" }, key, sig, concat(me.nonce, new TextEncoder().encode(box)));
+        ok = await crypto.subtle.verify({ name: "Ed25519" }, key, sig, concat(unb64(me.nonce), new TextEncoder().encode(box)));
       } catch { ok = false; }
       if (!ok) return ws.send(JSON.stringify({ op: "err", box, why: "sig" }));
       const owner = this.owners.get(box), pubS = b64(pub);
       if (owner && owner.pub !== pubS) return ws.send(JSON.stringify({ op: "err", box, why: "owner" }));
       this.owners.set(box, { pub: pubS, at: Date.now() });
-      if (!this.subs.has(box)) this.subs.set(box, new Set());
-      this.subs.get(box).add(ws); me.mine.add(box);
+      if (!me.mine.includes(box)) me.mine.push(box); ws.serializeAttachment(me);
       ws.send(JSON.stringify({ op: "ok", box }));
       for (const [mid, v] of this.boxes.get(box) || []) ws.send(JSON.stringify({ op: "msg", box, mid, blob: v.blob }));
       await this.persist();
@@ -92,9 +90,9 @@ export class Relay {
       ws.send(JSON.stringify({ op: "stats", boxes: this.boxes.size, pending }));
     }
   }
-  webSocketClose(ws) { this.drop(ws); }
-  webSocketError(ws) { this.drop(ws); }
-  drop(ws) { const me = this.meta.get(ws); if (me) for (const b of me.mine) this.subs.get(b)?.delete(ws); this.meta.delete(ws); }
+  subscribers(box) { return this.state.getWebSockets().filter(w => { try { return (w.deserializeAttachment()?.mine || []).includes(box); } catch { return false; } }); }
+  webSocketClose(ws) { try { ws.close(); } catch {} }
+  webSocketError(ws) { try { ws.close(); } catch {} }
 }
 
 const b64 = (u8) => btoa(String.fromCharCode(...u8));
