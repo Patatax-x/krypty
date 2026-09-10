@@ -51,14 +51,6 @@ export async function open(key, blob) {
   const pt = await crypto.subtle.decrypt({ name: "AES-GCM", iv: raw.slice(0, 12) }, key, raw.slice(12));
   return JSON.parse(td.decode(pt));
 }
-// Numéro de sécurité : SHA-256(min ‖ max) → 60 chiffres, identique des deux côtés.
-export async function safetyNumber(pubA, pubB) {
-  const [a, b] = [b64u.enc(pubA), b64u.enc(pubB)].sort();
-  const h = await sha256(te.encode(a + "|" + b));
-  let n = 0n; for (const x of h) n = (n << 8n) | BigInt(x);
-  const s = n.toString().padStart(60, "0").slice(-60);
-  return s.match(/.{5}/g).join(" ");
-}
 export async function tagOf(pubRaw) { return b64u.enc((await sha256(pubRaw)).slice(0, 3)).slice(0, 4).toUpperCase(); }
 
 // ── Stockage local (IndexedDB) ────────────────────────────────────────────────────
@@ -77,7 +69,7 @@ export function db() {
       d.createObjectStore("outbox", { keyPath: "id" }).createIndex("byContact", "contact");
       d.createObjectStore("carry", { keyPath: "id" });    // blobs portés pour des tiers
     };
-    r.onsuccess = () => { _db = r.result; res(_db); };
+    r.onsuccess = () => { _db = r.result; _db.onversionchange = () => { _db.close(); _db = null; }; res(_db); };   // un autre document efface : on lâche, sinon tout le monde attend
     r.onerror = () => rej(r.error);
   });
 }
@@ -139,7 +131,7 @@ export async function importBackup(file, pass) {
   for (const c of data.contacts || []) await store.put("contacts", c);
   for (const m of data.messages || []) if (!(await store.get("messages", m.id))) await store.put("messages", m);
 }
-export function wipe() { return new Promise((res) => { if (_db) _db.close(); _db = null; const r = indexedDB.deleteDatabase(DB); r.onsuccess = r.onerror = r.onblocked = () => res(); }); }
+export function wipe() { return new Promise((res) => { if (_db) _db.close(); _db = null; const r = indexedDB.deleteDatabase(DB); r.onsuccess = r.onerror = () => res(); setTimeout(res, 3000); }); }   // onblocked : la suppression finit dès que l'autre connexion lâche
 
 // ── Empreinte de vérification lisible : 5 emojis dérivés des deux clés publiques (ordre indépendant) ──
 const EMO = ["🍎","🍋","🍇","🍓","🥝","🌶️","🥑","🍄","🌵","🌻","🌙","⭐","🔥","💧","🌈","❄️","🐶","🐱","🐭","🦊","🐻","🐼","🐨","🐸","🐙","🦋","🐢","🦉","🐝","🦄","🐬","🦀",
@@ -149,7 +141,7 @@ export async function emojiFingerprint(pubA, pubB) {
   const h = await sha256(te.encode("emoji|" + a + "|" + b));
   return [0, 1, 2, 3, 4].map(i => EMO[h[i] % 64]).join(" ");
 }
-// Photo de profil : carré 96 px, JPEG ~4 Ko → tient dans un blob de répondeur, envoyée chiffrée aux contacts
+// Photo de profil : carré 96 px, JPEG ~4 Ko → tient dans un blob porté par un contact, envoyée chiffrée
 export function resizePhoto(file, size = 96) {
   return new Promise((res, rej) => {
     const img = new Image(); const u = URL.createObjectURL(file);

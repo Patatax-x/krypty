@@ -79,7 +79,7 @@ Krypty part du principe inverse : <b>aucune machine n'a besoin de savoir que vou
 <tr><td>Invitation</td><td>Clés publiques + boîte d'accueil, signées Ed25519. Un lien modifié est refusé.</td></tr>
 <tr><td>Codes de connexion</td><td>Offre et réponse WebRTC compressées ; la réponse et les codes de reconnexion sont scellés avec la clé de conversation.</td></tr>
 <tr><td>Boîtes chez un porteur</td><td>Identifiant aléatoire, blob chiffré pour le destinataire. Le porteur efface à l'acquittement.</td></tr>
-<tr><td>Numéro de sécurité</td><td>60 chiffres dérivés des deux clés publiques, identique des deux côtés si personne n'est au milieu.</td></tr>
+<tr><td>Vérification</td><td>5 symboles dérivés des deux clés publiques, identiques des deux côtés si personne n'est au milieu. À comparer une fois, de vive voix.</td></tr>
 <tr><td>Sauvegarde</td><td>AES‑256‑GCM, clé dérivée d'une phrase secrète (PBKDF2 300 000 itérations).</td></tr>
 </table>
 
@@ -87,22 +87,23 @@ Krypty part du principe inverse : <b>aucune machine n'a besoin de savoir que vou
 <h3>Dans le navigateur</h3>
 <ol>
 <li>Ouvrir l'application, choisir un nom et une couleur. Rien n'est envoyé nulle part.</li>
-<li><b>＋ Inviter</b>, copier le lien, l'envoyer. L'autre le colle dans <b>Rejoindre</b>, clique <b>Ajouter</b>, et vous renvoie le code de réponse. Vous le collez dans <b>Rejoindre</b>. Reliés.</li>
-<li>Écrire. ⏳ en attente · ✓ déposé chez un contact · ✓✓ lu · ⚡ en direct.</li>
+<li><b>＋ Inviter</b> : copier le lien (ou montrer son QR code), l'envoyer. La personne l'ouvre, choisit un nom, clique <b>Ajouter</b>, et vous renvoie le code de réponse. Vous le collez (Ctrl+V n'importe où dans Krypty). Reliés.</li>
+<li>Écrire. ⏳ en attente · ✓ déposé chez un contact · ✓✓ lu · ⚡ en direct. Un clic sur une bulle : réagir, répondre en citant, copier, modifier ou supprimer chez vous deux.</li>
+<li>Réglages : nom, couleur, photo, un mot sur vous (envoyés chiffrés à vos contacts), thème clair ou sombre, sauvegarde chiffrée. Rien d'autre à régler : le reste se fait tout seul.</li>
 <li>Plus tard, si vous êtes tous les deux hors ligne : <b>Se connecter</b> donne un code, l'autre renvoie le sien. Si un contact commun est en ligne, c'est automatique.</li>
 </ol>
 <h3>Facultatif : un point de rendez-vous chez un membre du cercle</h3>
 <pre>pip install websockets cryptography
 python relay.py 8765</pre>
-<p>~100 lignes de Python. Reconnexion sans codes et messages gardés quand tout le monde est absent. Dans l'app : Réglages, Avancé.
-Il ne voit que des boîtes anonymes et des blobs chiffrés.</p>
+<p>~100 lignes de Python, pour qui veut aller plus loin : reconnexion sans codes et messages gardés quand tout le monde est absent.
+Il ne voit que des boîtes anonymes et des blobs chiffrés. L'application n'en a pas besoin et ne demande rien à l'utilisateur.</p>
 
 <h2>Limites connues (honnêtement)</h2>
 <ul>
 <li><b>Une identité = un appareil</b>, sauf si vous exportez une sauvegarde et la restaurez ailleurs. Deux appareils actifs en même temps se partagent les messages sans se synchroniser : le premier qui lit efface.</li>
 <li><b>Pas de forward secrecy</b> pour l'instant : la clé de paire est statique. Une clé privée volée déchiffre l'historique capturé.</li>
 <li><b>Le cercle porte</b> : vos deux contacts les plus récents gardent vos messages chiffrés quand vous êtes absent, automatiquement. Ils ne peuvent pas les lire. Un porteur hostile peut au pire jeter un message : c'est pour ça qu'il y en a deux.</li>
-<li><b>Deux navigateurs ne peuvent pas se trouver seuls</b> : la première connexion, et chaque reconnexion sans contact commun en ligne, passe par un échange de codes. Sans serveur STUN (désactivé par défaut), la connexion directe demande l'IPv6 ou le même réseau.</li>
+<li><b>Deux navigateurs ne peuvent pas se trouver seuls</b> : la première connexion, et chaque reconnexion sans contact commun en ligne, passe par un échange de codes. Pour traverser les box, le navigateur demande son adresse publique à un serveur STUN public (Google, Cloudflare) : il voit votre adresse IP une seconde, rien d'autre.</li>
 <li><b>Fichiers</b> : uniquement en direct (tunnel). Hors ligne, seuls les textes attendent.</li>
 <li><b>Pas de groupes</b> dans cette version.</li>
 <li>Perdre l'appareil sans sauvegarde = perdre l'identité. Les contacts devront vous ré‑inviter.</li>

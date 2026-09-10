@@ -32,14 +32,20 @@ Application : https://patatax-x.github.io/krypty/web/ · Documentation : https:/
 - **Cercle** : une fois relié à un contact, il transmet la signalisation vers vos contacts communs, et il
   garde vos messages quand vous êtes absent. Les porteurs sont vos deux contacts les plus récents, choisis
   automatiquement. Un message a un identifiant ; la première copie compte, les autres sont jetées.
-- **STUN** : désactivé par défaut. Sans lui, la connexion directe passe en IPv6 ou sur le même réseau.
-  Réglages, Avancé, pour l'activer (un serveur public voit alors votre IP, rien d'autre).
+- **STUN** : toujours actif. Pour traverser les box, le navigateur demande son adresse publique à un
+  serveur STUN public (Google, Cloudflare) : il voit votre IP une seconde, rien d'autre. Sans lui, deux
+  navigateurs derrière deux box ne pourraient pas se joindre.
+- **Rien à régler** : porteurs, connexion, reconnexion se font seuls. Les réglages se limitent au profil
+  (nom, couleur, photo, un mot), au thème et à la sauvegarde chiffrée.
 
 ## Essayer
 
 En ligne : ouvrir l'application dans deux navigateurs (ou une fenêtre normale et une privée).
-Sur l'un : « Inviter », copier le lien. Sur l'autre : « Rejoindre », coller, « Ajouter », copier le code
-de réponse. Sur le premier : « Rejoindre », coller le code. Vous êtes reliés.
+Sur l'un : « Inviter », copier le lien (ou afficher le QR code). Sur l'autre : ouvrir le lien, choisir un
+nom, « Ajouter », copier le code de réponse. Sur le premier : coller le code (Ctrl+V n'importe où). Reliés.
+
+Dans une conversation : un clic sur une bulle pour réagir, répondre en citant, copier, modifier ou
+supprimer chez les deux.
 
 En local :
 
@@ -56,7 +62,8 @@ web/            l'application (HTML/CSS/JS, modules ES, aucune dépendance)
   core.js         crypto, IndexedDB, sauvegarde chiffrée, codes compressés
   link.js         tunnel direct WebRTC : codes, signalisation, fichiers en chunks
   carry.js        porteur : boîtes pour les contacts, par-dessus le tunnel
-  relay.js        client d'un point de rendez-vous (WebSocket), facultatif
+  relay.js        client d'un point de rendez-vous (WebSocket), facultatif, sans interface
+  qr.js           QR code du lien d'invitation, encodeur maison (mode octets, correction L)
   app.js          protocole (invitation, cartes, outbox, présence) + interface
 relay.py        point de rendez-vous Python, facultatif
 docs/           site de documentation (GitHub Pages)

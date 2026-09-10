@@ -13,11 +13,12 @@ export class Relay {
   }
   connect() {
     if (this.closed) return;
+    if (!/^wss?:\/\//.test(this.url)) { this.closed = true; return; }
     try { this.ws = new WebSocket(this.url); } catch { return this.retry(); }
     this.ws.onopen = () => { this.backoff = 1000; this.onState(this.url, "open"); };
     this.ws.onclose = () => { this.onState(this.url, "closed"); this.retry(); };
     this.ws.onerror = () => {};
-    this.ws.onmessage = (ev) => this.handle(JSON.parse(ev.data));
+    this.ws.onmessage = (ev) => { try { this.handle(JSON.parse(ev.data)); } catch {} };
   }
   retry() { if (this.closed) return; setTimeout(() => this.connect(), this.backoff); this.backoff = Math.min(this.backoff * 2, 30000); }
   close() { this.closed = true; try { this.ws && this.ws.close(); } catch {} }
@@ -71,6 +72,5 @@ export class RelayPool {
     for (const o of outboxes) if (this.get(o.relay).post(o.box, blob)) n++;
     return n;
   }
-  states() { return [...this.relays.values()].map(r => ({ url: r.url, open: r.open })); }
   wsOpen() { return [...this.relays.values()].some(r => !r.url.startsWith("peer:") && r.open); }
 }

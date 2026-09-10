@@ -8,31 +8,55 @@
 <title>Krypty</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 64 64%27%3E%3Crect width=%2764%27 height=%2764%27 rx=%2718%27 fill=%27%2330D158%27/%3E%3Ctext x=%2732%27 y=%2745%27 font-family=%27Segoe UI,system-ui,sans-serif%27 font-weight=%27800%27 font-size=%2738%27 text-anchor=%27middle%27 fill=%27%23052A11%27%3EK%3C/text%3E%3C/svg%3E">
 <link rel="stylesheet" href="style.css">
+<script>try { const t = localStorage.getItem("theme"); if (t === "dark" || t === "light") document.documentElement.dataset.theme = t; } catch {}</script>
 </head>
 <body>
 
 <!-- ─────────── Onboarding ─────────── -->
 <section id="onboard" hidden>
   <div class="ob">
-    <div class="ob-logo" id="ob-logo" aria-hidden="true">K</div>
-    <h1>Krypty</h1>
-    <p class="tagline">La messagerie qui ne sait pas que vous existez.</p>
-    <div id="ob-invited" class="invited" hidden><span class="av" id="ob-inv-av">?</span><div><b id="ob-inv-name">…</b><div class="mini">t'invite dans son cercle. Choisis un nom, et tu seras relié.</div></div></div>
-    <p class="sub">Pas de compte, pas de numéro, pas d'annuaire. Votre identité est une clé créée sur cet appareil, connue seulement des personnes que vous invitez.</p>
+    <ol class="dots" aria-label="Progression"><li class="on"></li><li></li><li></li></ol>
 
-    <label for="ob-name">Nom affiché chez vos contacts</label>
-    <input id="ob-name" maxlength="24" placeholder="ex : Nyx" autocomplete="off" autofocus>
-    <label>Couleur</label>
-    <div class="swatches" id="ob-colors" role="radiogroup" aria-label="Couleur de l'avatar"></div>
+    <!-- Page 1 : bienvenue -->
+    <div class="page on" data-page="1">
+      <div class="ob-logo" aria-hidden="true">K</div>
+      <h1>Krypty</h1>
+      <p class="tagline">La messagerie qui ne sait pas que vous existez.</p>
+      <div id="ob-invited" class="invited" hidden><span class="av" id="ob-inv-av">?</span><div><b id="ob-inv-name">…</b><div class="mini">t'invite dans son cercle. Deux écrans, et vous êtes reliés.</div></div></div>
+      <div id="ob-old" class="invited warn" hidden><span class="av" aria-hidden="true">!</span><div><b>Navigateur trop ancien</b><div class="mini">Krypty a besoin d'un navigateur récent (Chrome, Edge, Firefox ou Safari à jour), ouvert en https ou sur localhost.</div></div></div>
+      <ol class="how">
+        <li><b>Pas de compte.</b> Une clé, créée ici, jamais envoyée.</li>
+        <li><b>Pas d'annuaire.</b> Un lien à la personne, un code en retour.</li>
+        <li><b>Pas de serveur.</b> En direct, chiffré, entre vous deux.</li>
+      </ol>
+      <button id="ob-start" class="primary big">Commencer</button>
+      <p class="fine"><a href="#" id="ob-import">J'ai déjà une identité : restaurer une sauvegarde</a></p>
+    </div>
 
-    <button id="ob-go" class="primary big">Créer mon identité</button>
-    <p class="fine">Rien n'est envoyé nulle part. Vous pourrez changer le nom, la couleur et ajouter une photo plus tard.</p>
-    <p class="fine"><a href="#" id="ob-import">J'ai déjà une identité : restaurer une sauvegarde</a></p>
-    <ol class="how">
-      <li><b>Une clé</b>, créée ici, jamais envoyée.</li>
-      <li><b>Un lien</b> à la personne, <b>un code</b> en retour.</li>
-      <li><b>En direct</b>, chiffré, sans serveur entre vous.</li>
-    </ol>
+    <!-- Page 2 : identité -->
+    <div class="page" data-page="2">
+      <div class="av huge" id="ob-preview" aria-hidden="true">?</div>
+      <h2>Comment tes contacts te verront</h2>
+      <p class="sub">Un nom et une couleur. Rien n'est envoyé nulle part : c'est ta carte de visite, chiffrée pour tes contacts et pour personne d'autre.</p>
+      <label for="ob-name">Nom</label>
+      <input id="ob-name" maxlength="24" placeholder="ex : Nyx" autocomplete="off">
+      <label>Couleur</label>
+      <div class="swatches" id="ob-colors" role="radiogroup" aria-label="Couleur de l'avatar"></div>
+      <button id="ob-go" class="primary big">Créer ma clé</button>
+      <p class="fine">Modifiable plus tard, photo comprise.</p>
+    </div>
+
+    <!-- Page 3 : prêt -->
+    <div class="page" data-page="3">
+      <div class="av huge" id="ob-done" aria-hidden="true">?</div>
+      <h2 id="ob-done-title">Ta clé est prête</h2>
+      <ul class="facts left">
+        <li><i>🔑</i><span>Elle vit dans ce navigateur, sur cet appareil. Personne ne l'a vue, pas même nous.</span></li>
+        <li><i>🫥</i><span>Aucun serveur ne sait que tu existes. Seules les personnes que tu relies te connaissent.</span></li>
+        <li><i>💾</i><span>Une sauvegarde chiffrée, plus tard dans les réglages, te permettra de la retrouver ailleurs.</span></li>
+      </ul>
+      <button id="ob-enter" class="primary big">Entrer</button>
+    </div>
   </div>
 </section>
 
@@ -48,6 +72,11 @@
     </header>
     <div class="search"><input id="search" placeholder="Rechercher un contact" autocomplete="off"></div>
     <ul id="contacts" aria-label="Contacts"></ul>
+    <div id="nudge" class="nudge" hidden>
+      <b>Protège ton identité</b>
+      <span class="mini">Ta clé n'existe que sur cet appareil. Une sauvegarde chiffrée te permet de la retrouver ailleurs.</span>
+      <div class="row"><button class="primary small" id="nudge-go">Sauvegarder</button><button class="ghost small" id="nudge-later">Plus tard</button></div>
+    </div>
     <footer class="side-foot" id="side-foot" title="">
       <span class="dot" id="relay-dot"></span><span id="relay-txt" class="mini">…</span>
     </footer>
@@ -74,10 +103,18 @@
         <span id="chat-pill" class="pill"></span>
       </header>
       <div id="messages"></div>
-      <footer class="composer">
-        <label class="icon attach" id="attach" title="Envoyer un fichier (tunnel direct requis)">📎<input id="file" type="file" hidden></label>
-        <textarea id="input" rows="1" placeholder="Écrire… (Entrée pour envoyer, Maj+Entrée = retour)"></textarea>
-        <button id="send" class="primary round" aria-label="Envoyer">➤</button>
+      <div id="msg-actions" class="msg-actions" hidden>
+        <button data-act="react" data-e="👍">👍</button><button data-act="react" data-e="❤️">❤️</button><button data-act="react" data-e="😂">😂</button><button data-act="react" data-e="😮">😮</button><button data-act="react" data-e="😢">😢</button><button data-act="react" data-e="🔥">🔥</button>
+        <span class="sep"></span>
+        <button data-act="reply" title="Répondre">↩</button><button data-act="copy" title="Copier le texte">⧉</button><button data-act="edit" title="Modifier" class="mine">✎</button><button data-act="del" title="Supprimer pour tous" class="mine danger">🗑</button>
+      </div>
+      <footer class="composer-wrap">
+        <div id="compose-ctx" class="compose-ctx" hidden><span class="grow"><b id="ctx-title"></b><span id="ctx-text" class="mini"></span></span><button class="x" id="ctx-cancel" aria-label="Annuler">✕</button></div>
+        <div class="composer">
+          <label class="icon attach" id="attach" title="Envoyer un fichier (connexion directe requise)">📎<input id="file" type="file" hidden></label>
+          <textarea id="input" rows="1" placeholder="Écrire un message" title="Entrée pour envoyer, Maj+Entrée pour un retour à la ligne"></textarea>
+          <button id="send" class="primary round" aria-label="Envoyer">➤</button>
+        </div>
       </footer>
     </div>
   </main>
@@ -97,8 +134,9 @@
           <li id="st3"><span>3</span>Reliés</li>
         </ol>
         <div class="codebox"><span class="lock" aria-hidden="true">🔒</span><textarea id="invite-link" readonly rows="3" aria-label="Lien d'invitation"></textarea></div>
-        <div class="row"><button class="primary" id="invite-copy">Copier le lien</button><button id="invite-share" hidden>Partager…</button><button id="invite-new" class="ghost small">Nouveau lien</button></div>
-        <p class="mini">Par SMS, mail, n'importe quoi. La personne l'ouvre, choisit un nom, et te renvoie un code. Le lien ne passe par aucun serveur et vaut pour une seule personne, tant que cette page reste ouverte.</p>
+        <div class="row wrap"><button class="primary" id="invite-copy">Copier le lien</button><button id="invite-share" hidden>Partager…</button><button id="invite-qr">QR code</button><button id="invite-new" class="ghost small">Nouveau lien</button></div>
+        <div id="qrwrap" class="qrwrap" hidden><canvas id="qr" aria-label="QR code du lien d'invitation"></canvas><span class="mini">La personne scanne avec l'appareil photo de son téléphone : le lien s'ouvre chez elle.</span></div>
+        <p class="mini">Par SMS, mail, ou en montrant le QR code. La personne l'ouvre, choisit un nom, et te renvoie un code. Le lien ne passe par aucun serveur, contient tes adresses réseau du moment, et vaut pour une seule personne tant que cette page reste ouverte.</p>
         <textarea id="invite-answer" rows="3" placeholder="Colle ici le code qu'elle te renvoie (commence par KR)"></textarea>
         <div class="row"><button class="primary" id="invite-answer-go">Relier</button></div>
       </div>
@@ -110,7 +148,7 @@
     </div>
   </div>
 
-  <!-- Confirmation d'ajout (numéro de sécurité) -->
+  <!-- Confirmation d'ajout -->
   <div id="accept" class="modal" hidden>
     <div class="box">
       <div class="who-big"><span class="av big" id="acc-av">?</span><div><b id="acc-name">&nbsp;</b><div class="mini">t'invite dans son cercle</div></div></div>
@@ -134,14 +172,13 @@
   <div id="contact" class="modal" hidden>
     <div class="box">
       <div class="tabs"><b class="grow">Contact</b><button class="x" id="ct-close" aria-label="Fermer">✕</button></div>
-      <div class="who-big"><span class="av big" id="ct-av">?</span><div><b id="ct-name">&nbsp;</b><div class="mini" id="ct-state">&nbsp;</div></div></div>
+      <div class="who-big"><span class="av big" id="ct-av">?</span><div class="grow"><b id="ct-name">&nbsp;</b><div class="mini" id="ct-state">&nbsp;</div><div class="bio" id="ct-bio" hidden></div></div></div>
+      <h3>Comment vous êtes reliés</h3>
+      <ul class="facts" id="ct-how"></ul>
       <h3>Vérification</h3>
       <p class="mini">Ces 5 symboles sont calculés à partir de vos deux clés. S'ils sont identiques chez lui, personne ne s'est glissé entre vous.</p>
       <div class="emo" id="ct-emo">&nbsp;</div>
       <div class="row"><button class="small" id="ct-verify">Nous avons comparé, c'est identique</button><span class="mini" id="ct-verified"></span></div>
-      <details class="adv"><summary>Détails techniques</summary>
-        <p class="mini">Identifiant : <code id="ct-tag">&nbsp;</code><br>Numéro de sécurité :</p><pre id="ct-sn" class="sn small"></pre>
-      </details>
       <h3>Actions</h3>
       <div class="row wrap"><button class="small" id="ct-rename">Renommer chez moi</button><button class="small danger" id="ct-delete">Retirer du cercle</button></div>
     </div>
@@ -153,39 +190,47 @@
       <div class="tabs"><b class="grow">Réglages</b><button class="x" id="set-close" aria-label="Fermer">✕</button></div>
       <h3>Moi</h3>
       <div class="who-big">
-        <label class="av big photo" id="set-av" title="Changer la photo"><span id="set-av-txt">?</span><input id="photo-file" type="file" accept="image/*" hidden></label>
+        <label class="av big photo" id="set-av" title="Changer la photo">?<input id="photo-file" type="file" accept="image/*" hidden></label>
         <div class="grow">
           <div class="row" style="margin-top:0"><input id="set-name" maxlength="24" placeholder="Nom affiché"><button id="set-name-ok" class="small">OK</button></div>
           <div class="swatches" id="set-colors" style="margin-top:8px"></div>
         </div>
       </div>
-      <div class="row"><button class="small ghost" id="photo-rm">Retirer la photo</button><span class="mini">Nom, couleur et photo sont envoyés chiffrés à tes contacts, à personne d'autre.</span></div>
+      <div class="row"><input id="set-bio" maxlength="80" placeholder="Un mot sur toi (facultatif, visible par tes contacts)"><button id="set-bio-ok" class="small">OK</button></div>
+      <div class="row"><button class="small ghost" id="photo-rm">Retirer la photo</button><span class="mini">Nom, couleur, photo et ce mot sont envoyés chiffrés à tes contacts, à personne d'autre.</span></div>
 
-      <h3>Hors ligne</h3>
+      <h3>Apparence</h3>
+      <div class="seg" id="theme" role="radiogroup" aria-label="Thème">
+        <button data-v="auto" role="radio">Comme le système</button><button data-v="dark" role="radio">Sombre</button><button data-v="light" role="radio">Clair</button>
+      </div>
+
+      <h3>Quand tu es absent</h3>
       <p class="mini" id="set-carry">&nbsp;</p>
 
       <h3>Cet appareil</h3>
       <div class="row wrap">
         <button id="btn-notif" class="small">Activer les notifications</button>
-        <button id="btn-export" class="small">Exporter une sauvegarde</button>
+        <button id="btn-export" class="small">Sauvegarder</button>
         <label class="small btn"><input id="import-file" type="file" accept=".krypty2" hidden>Restaurer une sauvegarde</label>
         <button id="btn-wipe" class="small danger">Tout effacer</button>
       </div>
-      <p class="mini">La sauvegarde (identité + contacts + messages) est chiffrée avec une phrase secrète. C'est le seul moyen de retrouver ton identité sur un autre appareil.</p>
-
-      <details class="adv"><summary>Avancé</summary>
-        <label class="row" style="cursor:pointer"><input type="checkbox" id="stun" style="width:auto"><span class="mini">Aide à la connexion (STUN). Pour traverser ta box, ton navigateur demande son adresse publique à un serveur STUN (Google ou Cloudflare) : une requête sans compte ni contenu, il voit ton adresse IP et rien d'autre. Décoché, la connexion directe ne marche que sur le même réseau.</span></label>
-        <h3>Points de rendez-vous</h3>
-        <p class="mini">Facultatif. Une petite boîte aux lettres (<code>relay.py</code>) chez un membre du cercle : reconnexion sans codes et messages gardés quand tout le monde est absent. Elle ne voit que des boîtes anonymes et des messages chiffrés.</p>
-        <ul id="relays" class="relays"></ul>
-        <div class="row"><input id="relay-url" placeholder="ws://ip-ou-nom:8765"><button id="relay-add" class="small">Ajouter</button></div>
-        <p class="mini">Identifiant de cet appareil : <code id="set-tag">&nbsp;</code></p>
-      </details>
+      <p class="mini" id="set-backup">&nbsp;</p>
     </div>
   </div>
 
-  <div id="toast" role="status" aria-live="polite"></div>
 </section>
+
+<!-- Hors de #app : utilisables aussi pendant l'accueil (restauration d'une sauvegarde) -->
+<div id="pass" class="modal" hidden>
+  <div class="box">
+    <div class="tabs"><b class="grow" id="pass-title">Phrase secrète</b><button class="x" id="pass-close" aria-label="Fermer">✕</button></div>
+    <p class="mini" id="pass-txt"></p>
+    <input id="pass-1" type="password" placeholder="Phrase secrète" autocomplete="off">
+    <input id="pass-2" type="password" placeholder="Encore une fois" autocomplete="off">
+    <div class="row"><button class="primary" id="pass-ok">Continuer</button><button id="pass-no" class="ghost">Annuler</button></div>
+  </div>
+</div>
+<div id="toast" role="status" aria-live="polite"></div>
 
 <script type="module" src="app.js"></script>
 </body>

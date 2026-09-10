@@ -5,7 +5,7 @@
 // destinataire, jamais la sienne). Il efface à l'ack ou après TTL.
 import { kv, store, uid } from "./core.js";
 
-const TTL = 15 * 24 * 3600 * 1000, MAX_PER_BOX = 200, MAX_BLOB = 96 * 1024;
+const TTL = 15 * 24 * 3600 * 1000, MAX_PER_BOX = 200, MAX_BLOB = 96 * 1024, MAX_TOTAL = 3000, MAX_OWNERS = 500;
 
 // ── Rôle serveur : je porte pour les autres ──
 export class Carrier {
@@ -21,13 +21,13 @@ export class Carrier {
     if (m.__box === "sub") {                       // un contact réclame une boîte (première fois = il en devient propriétaire)
       const o = this.owners.get(m.box);
       if (o && o !== cid) return;
-      if (!o) { this.owners.set(m.box, cid); await this.save(); }
+      if (!o) { if (this.owners.size >= MAX_OWNERS) return; this.owners.set(m.box, cid); await this.save(); }
       await this.deliver(cid, m.box);
     } else if (m.__box === "post") {              // un contact dépose pour un tiers
       const box = String(m.box || "").slice(0, 64), blob = String(m.blob || "");
       if (!box || blob.length > MAX_BLOB) return;
-      const pending = (await store.all("carry")).filter(b => b.box === box);
-      if (pending.length >= MAX_PER_BOX) return;
+      const all = await store.all("carry");
+      if (all.length >= MAX_TOTAL || all.filter(b => b.box === box).length >= MAX_PER_BOX) return;
       const ttl = Math.min(Number(m.ttl) || TTL, TTL);       // signalisation / présence : courte durée, ne s'empile pas
       const rec = { id: uid(), box, blob, exp: Date.now() + ttl };
       await store.put("carry", rec);
@@ -45,7 +45,6 @@ export class Carrier {
     await this.ready;
     for (const [box, o] of this.owners) if (o === cid) await this.deliver(cid, box);
   }
-  async stats() { await this.ready; const all = await store.all("carry"); return { boxes: this.owners.size, pending: all.length }; }
 }
 
 // ── Rôle client : un contact porte pour moi. Même interface que Relay (relay.js). ──

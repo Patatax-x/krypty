@@ -15,11 +15,15 @@ l'adresse indiquée sur le profil GitHub du mainteneur. Merci de ne pas publier 
   blobs chiffrés. Codes de connexion : offre WebRTC en clair dans le lien d'invitation (elle contient
   vos adresses IP locales), réponse et codes suivants scellés avec la clé de conversation.
 - Invitations : signées Ed25519, refusées si modifiées.
+- Modifier, supprimer, réagir : une enveloppe chiffrée qui vise un message par son identifiant ;
+  le destinataire n'applique une modification ou une suppression qu'à un message écrit par l'expéditeur.
 
 ## Ce qu'il ne garantit pas (encore)
 
 - Pas de confidentialité persistante (forward secrecy) : la clé de paire est statique.
 - Un porteur (contact commun) sait qu'un message est passé entre deux de ses contacts, et quand.
 - Un point de rendez-vous peut jeter des blobs (déni de service) ou observer des horaires.
+- Le serveur STUN (Google ou Cloudflare) voit votre adresse IP publique au moment d'une connexion,
+  rien d'autre. Le lien d'invitation contient vos adresses réseau du moment (offre WebRTC), en clair.
 - Le navigateur est la base de confiance : extensions, profil compromis ou machine partagée
   donnent accès aux clés. La sauvegarde chiffrée est le seul moyen de les déplacer.

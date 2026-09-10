@@ -5,10 +5,10 @@
 //  - par signalisation : offre / réponse / candidats passent par un contact déjà relié ou un point
 //    de rendez-vous, chiffrés comme n'importe quel message.
 // Une fois ouvert, messages et fichiers passent en direct.
-const CHUNK = 64 * 1024, GATHER_MS = 3000;
+const CHUNK = 64 * 1024, GATHER_MS = 3000, MAX_FILE = 512 * 1024 * 1024;
 
 export class Link {
-  // ice : liste de serveurs STUN, vide par défaut (aucun tiers). Réglable par l'app.
+  // ice : serveurs STUN (adresse publique), posés par l'app au démarrage.
   static ice = [];
   constructor(cid, sendSignal, onEnvelope, onState) {
     this.cid = cid; this.sendSignal = sendSignal; this.onEnvelope = onEnvelope; this.onState = onState || (() => {});
@@ -99,12 +99,15 @@ export class Link {
     if (typeof data === "string") {
       let j = null; try { j = JSON.parse(data); } catch {}
       if (j && j.__box) { this.onEnvelope({ t: "box", m: j }); return; }
-      if (j && j.__file) { this.files.set(j.__file.id, { meta: j.__file, parts: [], got: 0 }); return; }
+      if (j && j.__file) { const f = j.__file; if (typeof f.id === "string" && Number(f.size) <= MAX_FILE) this.files.set(f.id, { meta: { id: f.id, name: String(f.name || "fichier").slice(0, 255), size: Number(f.size) || 0 }, parts: [], got: 0 }); return; }
       if (j && j.__fileEnd) { const f = this.files.get(j.__fileEnd); this.files.delete(j.__fileEnd); if (f) this.onEnvelope({ t: "file", meta: f.meta, blob: new Blob(f.parts) }); return; }
       this.onEnvelope({ t: "sealed", blob: data });
     } else {
       const cur = [...this.files.values()].at(-1);
-      if (cur) { cur.parts.push(data); cur.got += data.byteLength; this.onEnvelope({ t: "progress", id: cur.meta.id, got: cur.got, size: cur.meta.size }); }
+      if (!cur) return;
+      cur.parts.push(data); cur.got += data.byteLength;
+      if (cur.got > cur.meta.size + CHUNK) { this.files.delete(cur.meta.id); return; }   // plus gros qu'annoncé : on jette
+      this.onEnvelope({ t: "progress", id: cur.meta.id, got: cur.got, size: cur.meta.size });
     }
   }
 }

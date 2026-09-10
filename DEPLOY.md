@@ -32,13 +32,14 @@ Dépôt créé et Pages activé par l'API GitHub avec le jeton du gestionnaire d
 
 ## Point de rendez-vous facultatif
 
-Depuis une page `https://`, le navigateur n'accepte que `wss://` ou `ws://localhost`. Un membre du
-cercle qui lance `relay.py` chez lui l'expose donc soit en local (`ws://localhost:8765`, pour lui seul),
-soit derrière un certificat TLS (Caddy et un nom de domaine). Sans ça, l'app fonctionne entièrement par
-codes et par le cercle.
+Il n'y a plus d'interface pour en ajouter un : l'application en utilise un seulement s'il figure dans
+une invitation reçue ou une sauvegarde restaurée (`relays` dans IndexedDB), ou sur `localhost` en
+développement. Depuis une page `https://`, le navigateur n'accepte que `wss://` ou `ws://localhost` :
+un membre du cercle qui lance `relay.py` chez lui doit l'exposer derrière un certificat TLS. Sans ça,
+l'app fonctionne entièrement par codes et par le cercle, et c'est le cas nominal.
 
 ## Vérifier après publication
 
 1. `https://patatax-x.github.io/krypty/web/` dans deux navigateurs.
-2. Inviter sur A, coller sur B, Ajouter, copier le code de réponse, le coller sur A. ⚡ en direct.
+2. Inviter sur A (lien ou QR), ouvrir sur B, choisir un nom, Ajouter, copier le code de réponse, le coller sur A. ⚡ en direct.
 3. Fermer les deux, rouvrir, « Se connecter » sur A, coller sur B, recoller la réponse sur A.
