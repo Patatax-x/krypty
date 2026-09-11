@@ -22,7 +22,7 @@ const S = {
   reply: null, edit: null,          // composeur : message cité / message en cours de modification
   groups: new Map(),                // gid -> { id, name, color, members: [cid, ... moi inclus], creator, seen, last, unread }
 };
-const N_CARRIERS = 2, INVITE_TTL = 15 * 60 * 1000;
+const N_CARRIERS = 2, MAX_CARRIERS = 12, INVITE_TTL = 15 * 60 * 1000;
 // Serveurs STUN publics, sans état : le navigateur leur demande son adresse publique, rien d'autre.
 // Sans eux, deux navigateurs derrière deux box ne peuvent pas se joindre. Toujours actifs.
 const STUN = ["stun:stun.l.google.com:19302", "stun:stun.cloudflare.com:3478"];
@@ -82,8 +82,13 @@ async function subscribeAll() {
 }
 // ── Porteurs automatiques : mes N contacts les plus récents gardent mes messages quand je suis absent.
 // Rien à régler : recalculé à chaque contact ajouté / message échangé ; les contacts reçoivent ma carte.
+// Un porteur ne sert à un contact que s'il le connaît aussi (il faut un tunnel des deux côtés) :
+// pour chaque contact, jusqu'à 2 contacts communs, plus mes plus récents tant que les communs sont inconnus.
 async function pickCarriers(announce = true) {
-  const want = [...S.contacts.values()].filter(c => !c.pending).sort((a, b) => (b.seen || 0) - (a.seen || 0)).slice(0, N_CARRIERS).map(c => c.id);
+  const live = [...S.contacts.values()].filter(c => !c.pending), recent = (a, b) => (b.seen || 0) - (a.seen || 0);
+  const set = new Set(live.sort(recent).slice(0, N_CARRIERS).map(c => c.id));
+  for (const c of live) for (const m of (c.mutual || []).map(id => S.contacts.get(id)).filter(m => m && !m.pending).sort(recent).slice(0, 2)) set.add(m.id);
+  const want = [...set].slice(0, MAX_CARRIERS);
   const same = want.length === S.carriers.length && want.every((id, i) => id === S.carriers[i]);
   let changed = false;
   for (const cid of want) if (!S.me.pickups[cid]) { const b = await C.newBox("peer:" + cid); S.me.pickups[cid] = { box: b.box, key: b.key, pub: b.pub }; changed = true; }
@@ -108,15 +113,36 @@ function takeProfile(c, p) {
 }
 // Ma carte de visite dans une intro / intro-ack
 const myIntro = (c) => ({ name: S.me.name, tag: S.me.tag, color: S.me.color, photo: S.me.photo || null, bio: S.me.bio || "", epub: C.b64u.enc(S.me.e.pub), inbox: myCard(c) });
-const helloFor = (c, reply = false) => ({ t: "hello", ts: Date.now(), reply, card: myCard(c), name: S.me.name, color: S.me.color, pv: S.me.pv || 0 });
+const helloFor = async (c, reply = false) => ({ t: "hello", ts: Date.now(), reply, card: myCard(c), mh: await mutualTags(c), name: S.me.name, color: S.me.color, pv: S.me.pv || 0 });
+// Contacts en commun sans montrer son carnet : une empreinte par contact, liée à la paire (moi, c).
+// c ne reconnaît que les empreintes des personnes qu'il connaît aussi ; le reste lui est illisible.
+const _mh = new Map();
+async function mutualTag(a, b, x) {
+  const k = [a, b].sort().join("|") + "|" + x;
+  if (!_mh.has(k)) _mh.set(k, C.b64u.enc((await C.sha256(new TextEncoder().encode("mutual|" + k))).slice(0, 9)));
+  return _mh.get(k);
+}
+async function mutualTags(c) {
+  const out = []; for (const x of S.contacts.values()) if (x.id !== c.id && !x.pending) out.push(await mutualTag(S.me.id, c.id, x.id));
+  return out.slice(0, 300);
+}
+async function takeMutual(c, tags) {
+  const set = new Set(tags.slice(0, 300).map(String)), mutual = [];
+  for (const x of S.contacts.values()) if (x.id !== c.id && !x.pending && set.has(await mutualTag(S.me.id, c.id, x.id))) mutual.push(x.id);
+  mutual.sort();
+  if (c.mutual && String(mutual) === String(c.mutual)) return false;
+  c.mutual = mutual; return true;
+}
 // Envoi fiable : reste dans l'outbox jusqu'à l'ack du destinataire.
 async function sendReliable(c, env) {
   if (!env.id) env.id = C.uid();
   const r = await sendTo(c, env); await C.store.put("outbox", { id: env.id, contact: c.id, env, posted: r.posted, at: Date.now() }); return r;
 }
 // Ma carte pour un contact : ses boîtes chez mes répondeurs WebSocket + mes boîtes chez mes porteurs
+// Seulement les porteurs que c connaît aussi (dès que nos contacts communs sont connus) : les autres lui sont inutiles.
 function myCard(c) {
-  return [...c.inbox.map(b => ({ relay: b.relay, box: b.box })), ...Object.entries(S.me.pickups).filter(([cid]) => S.contacts.has(cid) && !S.contacts.get(cid).pending).map(([cid, p]) => ({ relay: "peer:" + cid, box: p.box }))];
+  const useful = (cid) => cid !== c.id && S.contacts.has(cid) && !S.contacts.get(cid).pending && (!c.mutual || c.mutual.includes(cid));
+  return [...c.inbox.map(b => ({ relay: b.relay, box: b.box })), ...Object.entries(S.me.pickups).filter(([cid]) => useful(cid)).map(([cid, p]) => ({ relay: "peer:" + cid, box: p.box }))];
 }
 
 // ═══════════════════════ Réception ═══════════════════════
@@ -153,7 +179,7 @@ async function dispatch(c, env, via) {
   // repostera. « group » lui-même porte l'annonce (un objet, pas un id) et suit son propre chemin plus bas.
   const GROUP_TYPES = ["msg", "edit", "del", "react", "gleave"];
   const g = GROUP_TYPES.includes(env.t) && typeof env.g === "string" ? S.groups.get(env.g) : null;
-  if (GROUP_TYPES.includes(env.t) && !(g && g.members.includes(c.id))) return;
+  if (GROUP_TYPES.includes(env.t) && env.g !== undefined && !(g && g.members.includes(c.id))) return;
   const conv = g || c, table = g ? "groups" : "contacts";
   if (env.t === "msg") {
     if (await C.store.get("messages", env.id)) return;   // doublon (plusieurs porteurs)
@@ -178,11 +204,13 @@ async function dispatch(c, env, via) {
   } else if (env.t === "hello") {
     if (Date.now() - env.ts > 120000) return;            // hello périmé (resté chez un porteur)
     S.presence.set(c.id, Date.now()); c.online = Date.now();
-    const card = sanitizeCard(env.card); if (card.length) c.outbox = card;
+    const card = sanitizeCard(env.card); if (card.length || Array.isArray(env.mh)) c.outbox = card;
+    const mutualChanged = Array.isArray(env.mh) && await takeMutual(c, env.mh);
     takeProfile(c, { name: env.name, color: env.color });
     if (env.pv && env.pv !== c.pv) sendTo(c, { t: "profile-req" });     // photo changée pendant mon absence
     await C.store.put("contacts", c);
-    if (!env.reply) sendTo(c, helloFor(c, true));
+    if (!env.reply || mutualChanged) sendTo(c, await helloFor(c, true));   // communs changés : ma carte filtrée change aussi
+    if (mutualChanged) pickCarriers();
     maybeLink(c);
     renderContacts(); if (S.active === c.id) renderChat();
   } else if (env.t === "profile-req") {
@@ -217,10 +245,10 @@ async function dispatch(c, env, via) {
         const id = await C.contactId(xp); if (id === S.me.id) continue;
         const boxes = sanitizeCard(k.boxes).filter(o => o.relay === "peer:" + c.id);
         const ex = S.contacts.get(id);
-        if (ex) { for (const o of boxes) if (!ex.outbox.some(x => x.box === o.box)) ex.outbox.push(o); await C.store.put("contacts", ex); if (!isOnline(ex)) sendTo(ex, helloFor(ex)); continue; }
+        if (ex) { for (const o of boxes) if (!ex.outbox.some(x => x.box === o.box)) ex.outbox.push(o); await C.store.put("contacts", ex); if (!isOnline(ex)) sendTo(ex, await helloFor(ex)); continue; }
         const nc = await newContact(id, k.x, { name: k.name, color: k.color, epub: k.e, inbox: boxes }, null, false);
         nc.trust = "presented"; nc.via = c.name; nc.viaVerified = !!k.verified; await C.store.put("contacts", nc);
-        names.push(nc.name); sendTo(nc, helloFor(nc));
+        names.push(nc.name); sendTo(nc, await helloFor(nc));
       } catch {}
     }
     sendTo(c, { t: "ack", ids: [env.id] }); renderContacts();
@@ -252,7 +280,10 @@ async function dispatch(c, env, via) {
     await C.store.put("contacts", c); if (env.id) sendTo(c, { t: "ack", ids: [env.id] });
     renderAll(); if (wasPending) { toast(`${c.name} est maintenant dans ton cercle`); flushOutbox(); pickCarriers(); }
   } else if (["offer", "answer", "ice"].includes(env.t)) {
-    if (env.ts && Date.now() - env.ts > 60000) return;   // signalisation périmée (restée chez un porteur)
+    if (env.ts && Date.now() - env.ts > 60000) {         // signalisation périmée (restée chez un porteur) :
+      if (env.t === "offer") sendTo(c, await helloFor(c));   // un hello suffit pour que l'autre refasse une offre fraîche
+      return;
+    }
     await getLink(c).onSignal(env);
   }
 }
@@ -281,11 +312,11 @@ async function sendTo(c, env, skipRelays = []) {
 // Présence : « hello » en direct si tunnel, sinon via répondeur au plus une fois / 10 min par
 // contact silencieux (sinon des centaines de blobs s'empileraient dans sa boîte pendant son absence).
 const _helloAt = new Map();
-function broadcast(env) {
-  for (const c of S.contacts.values()) {
+async function broadcast(env) {
+  for (const c of [...S.contacts.values()]) {
     if (c.pending) continue;
     const l = S.links.get(c.id);
-    const e = env.t === "hello" ? helloFor(c) : env;
+    const e = env.t === "hello" ? await helloFor(c) : env;
     if ((l && l.open) || env.t !== "hello") { sendTo(c, e); continue; }
     const last = _helloAt.get(c.id) || 0, heard = S.presence.get(c.id) || 0;
     if (Date.now() - last < 600000 && Date.now() - heard > 60000) continue;
@@ -378,7 +409,7 @@ function getLink(c) {
 }
 function maybeLink(c) {
   const l = getLink(c);
-  if (!l.open && !l.polite && !l.pc) l.offer().catch(() => {});
+  if (!l.open && !l.polite) l.offer().catch(() => {});
 }
 async function onLinkEvent(c, ev) {
   if (ev.t === "box") {
@@ -650,6 +681,7 @@ function applyTheme(t) {
 }
 const curTheme = () => document.documentElement.dataset.theme || "auto";
 const fmtDate = (ts) => new Date(ts).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" });
+const joinNames = (a) => a.length > 1 ? a.slice(0, -1).join(", ") + " et " + a[a.length - 1] : (a[0] || "");
 const ago = (ts) => { const s = (Date.now() - ts) / 1000; return s < 90 ? "à l'instant" : s < 3600 ? `il y a ${Math.round(s / 60)} min` : s < 86400 ? `il y a ${Math.round(s / 3600)} h` : `le ${fmtDate(ts)}`; };
 function statusOf(c) {
   if (isGroup(c)) { const ms = memberContacts(c), on = ms.filter(isOnline).length; return { k: on ? "relay" : "off", t: `${on}/${ms.length} en ligne` }; }
@@ -818,10 +850,10 @@ function howLinked(c) {
   else rows.push(["🔗", `Dans ton cercle depuis le ${fmtDate(c.added || c.seen || Date.now())}, par un lien d'invitation.`]);
   if (st.k === "direct") rows.push(["⚡", "Connectés en direct, de navigateur à navigateur : messages et fichiers ne passent par personne."]);
   else if (st.k === "relay") rows.push(["🟢", "En ligne. Vos messages passent chiffrés par un contact commun, le temps d'ouvrir une connexion directe."]);
-  else if (!c.pending) rows.push(["🌙", `Hors ligne${c.online ? ", vu " + ago(c.online) : ""}. Tes messages attendent chiffrés chez vos contacts communs, ou chez toi jusqu'à son retour. Pour le joindre tout de suite : envoie-lui un nouveau lien d'invitation, il te renvoie un code.`]);
-  const mine = S.carriers.map(cid => S.contacts.get(cid)?.name).filter(Boolean);
-  if (mine.includes(c.name)) rows.push(["📦", `${c.name} garde tes messages quand tu es absent. Impossible pour ${c.name} de les lire.`]);
-  if ((c.outbox || []).some(o => o.relay === "peer:" + S.me.id)) rows.push(["🤝", `Tu gardes ses messages quand ${c.name} est absent, chiffrés pour ses contacts, illisibles pour toi.`]);
+  const common = (c.mutual || []).map(id => S.contacts.get(id)?.name).filter(Boolean), list = joinNames(common);
+  if (!c.pending && st.k === "off") rows.push(["🌙", `Hors ligne${c.online ? ", vu " + ago(c.online) : ""}. ` + (common.length ? `Tes messages l'attendent chez ${list}, qui les lui remettra à son retour.` : "Tes messages partiront dès que vous serez en ligne en même temps.")]);
+  if (!c.pending && common.length) rows.push(["👥", `En commun : ${list}. Quand l'un de vous deux est absent, ${list} ${common.length > 1 ? "gardent" : "garde"} vos messages chiffrés, sans jamais pouvoir les lire.`]);
+  else if (!c.pending && c.mutual) rows.push(["🕸️", `Aucun contact en commun. Présente-lui quelqu'un de ton cercle : vos messages pourront passer par cette personne quand l'un de vous est absent.`]);
   rows.push([c.verified && c.theyVerified ? "✅" : c.verified || c.theyVerified ? "☑️" : "🔍",
     c.verified && c.theyVerified ? "Vérifié des deux côtés : personne entre vous." : c.verified ? `Tu as vérifié. ${c.name} n'a pas encore confirmé de son côté.` : c.theyVerified ? `${c.name} a vérifié de son côté. Compare et confirme.` : "Pas encore vérifié. À faire une fois, de vive voix ou en visio : symboles ou chiffres."]);
   return rows;
@@ -853,7 +885,7 @@ function openSettings() {
   $("#set-backup").textContent = (S.backupAt ? `Dernière sauvegarde : ${fmtDate(S.backupAt)}. ` : "Aucune sauvegarde pour l'instant. ") + "Le fichier (identité, contacts, messages) est chiffré avec une phrase secrète : c'est le seul moyen de retrouver ton identité sur un autre appareil.";
   swatches($("#set-colors"), colorOf(S.me), async (c) => { S.me.color = c; await saveProfile(); });
   const names = S.carriers.map(cid => S.contacts.get(cid)?.name).filter(Boolean);
-  $("#set-carry").textContent = names.length ? `Quand tu es absent, tes messages sont gardés chiffrés chez ${names.join(" et ")} (choisis automatiquement : tes contacts les plus récents). Eux ne peuvent pas les lire.`
+  $("#set-carry").textContent = names.length ? `Quand tu es absent, tes messages sont gardés chiffrés par les contacts que tu as en commun avec chaque personne (en ce moment : ${joinNames(names)}). Personne ne peut les lire. Sans contact commun, ils partent quand vous êtes en ligne en même temps.`
     : S.contacts.size ? "Dès qu'un contact aura accepté, il gardera tes messages chiffrés quand tu es absent, automatiquement." : "Ajoute un contact : ton cercle gardera tes messages quand tu es absent, sans rien régler.";
 }
 async function renameMe(name) {

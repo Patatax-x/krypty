@@ -5,7 +5,7 @@
 //  - par signalisation : offre / réponse / candidats passent par un contact déjà relié ou un point
 //    de rendez-vous, chiffrés comme n'importe quel message.
 // Une fois ouvert, messages et fichiers passent en direct.
-const CHUNK = 64 * 1024, GATHER_MS = 3000, MAX_FILE = 512 * 1024 * 1024;
+const CHUNK = 64 * 1024, GATHER_MS = 3000, MAX_FILE = 512 * 1024 * 1024, STALE_MS = 20000;
 
 export class Link {
   // ice : serveurs STUN (adresse publique), posés par l'app au démarrage.
@@ -61,9 +61,10 @@ export class Link {
 
   // ── Signalisation par messages (contact relié ou point de rendez-vous) ──
   // Le côté « impoli » (id le plus petit) initie ; l'autre attend l'offre : pas de collision.
+  // Une offre restée sans réponse (partie pendant l'absence de l'autre, périmée à son retour) est remplacée.
   async offer() {
-    if (this.pc) return;
-    this.setup();
+    if (this.pc && (this.open || this.manual || Date.now() - (this.offeredAt || 0) < STALE_MS)) return;
+    this.teardown(); this.setup(); this.offeredAt = Date.now();
     this.attach(this.pc.createDataChannel("k", { ordered: true }));
     await this.pc.setLocalDescription(await this.pc.createOffer());
     this.sendSignal({ t: "offer", sdp: this.pc.localDescription });
