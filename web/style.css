@@ -263,3 +263,42 @@ main { display: flex; flex-direction: column; min-width: 0; background: var(--bg
   .msg-actions { flex-wrap: wrap; justify-content: center; max-width: calc(100vw - 16px); }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; } }
+
+/* Fiche profil (contact, groupe) : bannière à la couleur, avatar à cheval, sections étiquetées */
+.modal .box.profile { padding: 0; gap: 0; }
+.pf-banner { height: 96px; flex-shrink: 0; position: relative; background: var(--c, var(--accent)); background: linear-gradient(135deg, var(--c, var(--accent)), color-mix(in srgb, var(--c, var(--accent)) 40%, var(--surface))); }
+.pf-banner button.x { position: absolute; top: 10px; right: 10px; background: rgba(0, 0, 0, .32); color: #fff; }
+.pf-banner button.x:hover { background: rgba(0, 0, 0, .5); color: #fff; }
+.pf-head { display: flex; align-items: flex-end; gap: 12px; padding: 0 18px; margin-top: -46px; position: relative; }
+.pf-head .av { width: 92px; height: 92px; font-size: 32px; border: 6px solid var(--surface); }
+.pf-head .av.on::after { width: 22px; height: 22px; right: 2px; bottom: 2px; border-width: 4px; }
+.pf-head .av.grp::after { font-size: 16px; right: 0; bottom: 0; padding: 3px; }
+.pf-actions { margin-left: auto; display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; padding-bottom: 8px; }
+.pf-id { padding: 8px 20px 0; }
+.pf-id h2 { margin: 0; font-size: 21px; letter-spacing: -.01em; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; text-wrap: balance; }
+button.icon.sm { width: 28px; height: 28px; font-size: 14px; }
+.pf-sub { font-size: 13px; color: var(--text-dim); margin-top: 2px; }
+.pf-sub:empty { display: none; }
+.pf-bio { margin-top: 10px; font-size: 13px; color: var(--text); line-height: 1.45; text-wrap: pretty; }
+.pf-body { margin: 14px 12px 4px; background: var(--bg); border: 1px solid var(--border); border-radius: 14px; padding: 2px 14px; }
+.pf-sec { padding: 12px 0; border-top: 1px solid var(--border); }
+.pf-sec:first-child { border-top: 0; }
+.pf-label { font-size: 11px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--text-muted); margin-bottom: 6px; }
+.pf-val { font-size: 14px; font-weight: 600; }
+.pf-note { font-size: 12px; color: var(--text-muted); margin-top: 4px; line-height: 1.45; text-wrap: pretty; }
+.pf-note:empty { display: none; }
+.pf-sec details { margin-top: 8px; }
+.pf-sec summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--accent); width: fit-content; }
+.pf-sec details[open] summary { margin-bottom: 8px; }
+.pf-foot { padding: 8px 14px 14px; display: flex; gap: 8px; }
+.chip-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip-list:empty { display: none; }
+.chip { display: inline-flex; align-items: center; gap: 7px; padding: 3px 11px 3px 3px; border-radius: 20px; background: var(--surface2); border: 1px solid var(--border); font-size: 13px; color: var(--text); }
+button.chip:hover { border-color: var(--accent); background: var(--hover); }
+.chip .av { width: 24px; height: 24px; font-size: 10px; }
+.chip .av.on::after { width: 9px; height: 9px; border-width: 2px; right: -2px; bottom: -2px; }
+.chip.add { padding: 4px 12px; color: var(--accent); border-style: dashed; background: transparent; }
+.chip .muted { color: var(--text-muted); font-size: 12px; }
+.state { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 20px; background: var(--surface2); color: var(--text-muted); letter-spacing: 0; }
+.state.ok { background: var(--accent-dim); color: var(--accent); }
+button.ghost.danger { color: var(--danger); }

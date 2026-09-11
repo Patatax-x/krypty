@@ -601,7 +601,7 @@ function openGroupModal(g = null) {
 let _gcard = null;
 function openGroupCard(g) {
   _gcard = g; const mine = g.creator === S.me.id;
-  $("#gcard").hidden = false; $("#gc-name").textContent = g.name; setAv($("#gc-av"), g);
+  $("#gcard").hidden = false; $("#gcard .box").scrollTop = 0; $("#gc-name").textContent = g.name; setAv($("#gc-av"), g); $("#gc-banner").style.setProperty("--c", colorOf(g));
   $("#gc-av").classList.toggle("photo", mine); $("#gc-av").title = mine ? "Changer la photo du groupe" : "";
   $("#gc-edit").hidden = !mine; $("#gc-photo-rm").hidden = !(mine && g.photo);
   if (mine) {
@@ -615,9 +615,10 @@ function openGroupCard(g) {
   }
   const ms = memberContacts(g), on = ms.filter(isOnline).length;
   $("#gc-state").textContent = `${g.members.length} membres · ${on} en ligne` + (g.creator === S.me.id ? " · créé par toi" : ` · créé par ${S.contacts.get(g.creator)?.name || "un membre parti"}`);
-  const rows = [[`<i>🟢</i><span>Toi</span>`]].concat(ms.map(c => [`<i>${statusOf(c).k === "off" ? "🌙" : "🟢"}</i><span>${esc(c.name)} <span class="trust">${statusOf(c).t}${c.verified ? " · vérifié" : c.trust === "presented" ? " · présenté par " + esc(c.via || "") : ""}</span></span>`]))
-    .concat(g.members.filter(id => id !== S.me.id && !S.contacts.has(id)).map(() => [`<i>❔</i><span>Un membre que tu ne connais pas encore <span class="trust">(présentation en attente)</span></span>`]));
-  $("#gc-members").innerHTML = rows.map(r => `<li>${r[0]}</li>`).join("");
+  $("#gc-members-label").textContent = `Membres · ${g.members.length}`;
+  chips($("#gc-members"), [S.me, ...ms.sort((a, b) => (statusOf(a).k === "off") - (statusOf(b).k === "off"))], (c) => { $("#gcard").hidden = true; openContact(c.id); });
+  const unknown = g.members.filter(id => id !== S.me.id && !S.contacts.has(id)).length;
+  if (unknown) { const u = document.createElement("span"); u.className = "chip add"; u.style.color = "var(--text-muted)"; u.title = "Présentation en attente"; u.textContent = `＋ ${unknown} pas encore présenté${unknown > 1 ? "s" : ""}`; $("#gc-members").appendChild(u); }
   $("#gc-add").hidden = !mine;
   $("#gc-add").onclick = () => { $("#gcard").hidden = true; openGroupModal(g); };
   $("#gc-leave").onclick = async () => { if (confirm(`Quitter « ${g.name} » ? Les messages du groupe seront effacés ici.`)) { $("#gcard").hidden = true; await leaveGroup(g); } };
@@ -842,34 +843,61 @@ function openInvite(tab) {
   $("#invite-share").hidden = !navigator.share;
   if (tab === "inv-join") $("#paste").focus();
 }
-// La fiche explique la liaison sans jargon : depuis quand, par où, qui garde quoi.
-function howLinked(c) {
-  const st = statusOf(c), rows = [];
-  if (c.pending) rows.push(["⏳", "Invitation envoyée, en attente de son code de réponse."]);
-  else if (c.trust === "presented") rows.push(["🤝", `Présenté par ${c.via || "un contact"} le ${fmtDate(c.added || Date.now())}${c.viaVerified ? ", qui l'avait vérifié" : ""}. Vous ne vous êtes encore rien envoyé par lien.`]);
-  else rows.push(["🔗", `Dans ton cercle depuis le ${fmtDate(c.added || c.seen || Date.now())}, par un lien d'invitation.`]);
-  if (st.k === "direct") rows.push(["⚡", "Connectés en direct, de navigateur à navigateur : messages et fichiers ne passent par personne."]);
-  else if (st.k === "relay") rows.push(["🟢", "En ligne. Vos messages passent chiffrés par un contact commun, le temps d'ouvrir une connexion directe."]);
-  const common = (c.mutual || []).map(id => S.contacts.get(id)?.name).filter(Boolean), list = joinNames(common);
-  if (!c.pending && st.k === "off") rows.push(["🌙", `Hors ligne${c.online ? ", vu " + ago(c.online) : ""}. ` + (common.length ? `Tes messages l'attendent chez ${list}, qui les lui remettra à son retour.` : "Tes messages partiront dès que vous serez en ligne en même temps.")]);
-  if (!c.pending && common.length) rows.push(["👥", `En commun : ${list}. Quand l'un de vous deux est absent, ${list} ${common.length > 1 ? "gardent" : "garde"} vos messages chiffrés, sans jamais pouvoir les lire.`]);
-  else if (!c.pending && c.mutual) rows.push(["🕸️", `Aucun contact en commun. Présente-lui quelqu'un de ton cercle : vos messages pourront passer par cette personne quand l'un de vous est absent.`]);
-  rows.push([c.verified && c.theyVerified ? "✅" : c.verified || c.theyVerified ? "☑️" : "🔍",
-    c.verified && c.theyVerified ? "Vérifié des deux côtés : personne entre vous." : c.verified ? `Tu as vérifié. ${c.name} n'a pas encore confirmé de son côté.` : c.theyVerified ? `${c.name} a vérifié de son côté. Compare et confirme.` : "Pas encore vérifié. À faire une fois, de vive voix ou en visio : symboles ou chiffres."]);
-  return rows;
+// Pastilles cliquables (avatar + nom) : contacts en commun, membres d'un groupe.
+function chips(container, people, onPick) {
+  container.innerHTML = people.map(p => `<button type="button" class="chip" title="${esc(p.id === S.me.id ? "Toi" : statusOf(p).t)}"><span class="av"></span>${esc(p.id === S.me.id ? "Toi" : p.name)}</button>`).join("");
+  container.querySelectorAll(".chip").forEach((b, i) => {
+    const p = people[i], av = b.querySelector(".av"); setAv(av, p);
+    av.classList.toggle("on", p.id === S.me.id || statusOf(p).k !== "off");
+    if (p.id === S.me.id) b.disabled = true; else b.onclick = () => onPick(p);
+  });
 }
+// Fiche contact façon carte de profil : l'essentiel en haut, le détail par sections courtes.
 async function openContact(id) {
   const c = S.contacts.get(id); if (!c) return;
-  $("#contact").hidden = false; $("#ct-name").textContent = c.name; setAv($("#ct-av"), c); $("#ct-state").textContent = statusOf(c).t;
+  const st = statusOf(c), common = (c.mutual || []).map(x => S.contacts.get(x)).filter(x => x && !x.pending);
+  $("#contact").hidden = false; $("#contact .box").scrollTop = 0; $("#ct-codes").open = false;
+  $("#ct-banner").style.setProperty("--c", colorOf(c));
+  setAv($("#ct-av"), c); $("#ct-av").classList.toggle("on", !c.pending && st.k !== "off");
+  $("#ct-name").textContent = c.name;
+  const sub = () => [c.tag ? "#" + c.tag : "", c.alias && c.rname && c.alias !== c.rname ? `se présente comme ${c.rname}` : ""].filter(Boolean).join(" · ");
+  $("#ct-sub").textContent = sub();
   $("#ct-bio").textContent = c.bio || ""; $("#ct-bio").hidden = !c.bio;
-  $("#ct-how").innerHTML = howLinked(c).map(([i, t]) => `<li><i>${i}</i><span>${esc(t)}</span></li>`).join("");
-  const vtxt = () => c.verified && c.theyVerified ? "✓ vérifié des deux côtés" : c.verified ? "✓ vérifié par toi" : c.theyVerified ? `${c.name} a confirmé de son côté` : "";
-  $("#ct-verified").textContent = vtxt(); $("#ct-verify").hidden = !!c.verified;
+  $("#ct-write").hidden = !!c.pending; $("#ct-present").hidden = !!c.pending || ![...S.contacts.values()].some(x => x.id !== c.id && !x.pending);
+
+  $("#ct-since").textContent = fmtDate(c.added || c.seen || Date.now());
+  $("#ct-since-note").textContent = c.pending ? "Invitation envoyée, en attente de son code de réponse." : c.trust === "presented" ? `Présenté par ${c.via || "un contact"}${c.viaVerified ? ", qui l'avait vérifié" : ""}.` : "Par un lien d'invitation.";
+
+  const names = joinNames(common.map(x => x.name));
+  const [conn, connNote] = c.pending ? ["⏳ En attente", "Vous serez reliés dès que son code de réponse arrive."]
+    : st.k === "direct" ? ["⚡ En direct", "De navigateur à navigateur : messages et fichiers ne passent par personne."]
+    : st.k === "relay" ? ["🟢 En ligne", "Messages chiffrés relayés par un contact commun, le temps d'ouvrir le direct."]
+    : [`🌙 Hors ligne${c.online ? " · vu " + ago(c.online) : ""}`, common.length ? `Tes messages l'attendent chez ${names}.` : "Tes messages partiront dès que vous serez en ligne en même temps."];
+  $("#ct-conn").textContent = conn; $("#ct-conn-note").textContent = connNote;
+
+  $("#ct-common-label").textContent = common.length ? `Contacts en commun · ${common.length}` : "Contacts en commun";
+  chips($("#ct-common"), common, (x) => openContact(x.id));
+  if (!common.length && !c.pending && !$("#ct-present").hidden) {
+    const add = document.createElement("button"); add.type = "button"; add.className = "chip add"; add.textContent = "＋ Présenter quelqu'un";
+    add.onclick = () => { $("#contact").hidden = true; openPresent(c); }; $("#ct-common").appendChild(add);
+  }
+  $("#ct-common-note").textContent = c.pending ? "Visibles une fois reliés."
+    : common.length ? `Quand l'un de vous est absent, ${common.length > 1 ? "ils gardent" : common[0].name + " garde"} vos messages chiffrés, sans pouvoir les lire.`
+    : c.mutual ? "Aucun pour l'instant. Présente-lui quelqu'un : vos messages pourront passer par cette personne quand l'un de vous est absent."
+    : "Calculés à votre prochaine connexion.";
+
+  const vrender = () => {
+    $("#ct-vstate").innerHTML = `<span class="state${c.verified ? " ok" : ""}">${c.verified ? "✓" : "○"} Toi</span><span class="state${c.theyVerified ? " ok" : ""}">${c.theyVerified ? "✓" : "○"} ${esc(c.name)}</span>`;
+    $("#ct-vnote").textContent = c.verified && c.theyVerified ? "Vérifié des deux côtés : personne entre vous." : c.verified ? `${c.name} n'a pas encore confirmé de son côté.` : c.theyVerified ? `${c.name} a comparé les codes. À toi de confirmer.` : "À faire une fois, de vive voix ou en visio.";
+    $("#ct-verify").hidden = !!c.verified; $("#ct-badge").hidden = !(c.verified && c.theyVerified);
+  };
+  vrender();
   const fp = await C.fingerprint(S.me.x.pub, C.b64u.dec(c.xpub));
   $("#ct-emo").textContent = fp.emoji; $("#ct-digits").textContent = fp.digits;
-  $("#ct-verify").onclick = async () => { c.verified = Date.now(); await C.store.put("contacts", c); $("#ct-verified").textContent = vtxt(); $("#ct-verify").hidden = true; renderContacts(); await sendReliable(c, { t: "verify" }); toast(`Vérifié. ${c.name} verra que tu as confirmé.`); };
+  $("#ct-verify").onclick = async () => { c.verified = Date.now(); await C.store.put("contacts", c); vrender(); $("#ct-codes").open = false; renderContacts(); await sendReliable(c, { t: "verify" }); toast(`Vérifié. ${c.name} verra que tu as confirmé.`); };
+  $("#ct-write").onclick = () => { $("#contact").hidden = true; openChat(c.id); };
   $("#ct-present").onclick = () => { $("#contact").hidden = true; openPresent(c); };
-  $("#ct-rename").onclick = async () => { const n = prompt("Nom affiché chez toi pour ce contact (vide : son nom à lui) :", c.name); if (n === null) return; c.alias = n.trim().slice(0, 24) || null; c.name = c.alias || c.rname || c.name; await C.store.put("contacts", c); renderAll(); $("#ct-name").textContent = c.name; };
+  $("#ct-rename").onclick = async () => { const n = prompt("Nom affiché chez toi pour ce contact (vide : son nom à lui) :", c.name); if (n === null) return; c.alias = n.trim().slice(0, 24) || null; c.name = c.alias || c.rname || c.name; await C.store.put("contacts", c); renderAll(); $("#ct-name").textContent = c.name; $("#ct-sub").textContent = sub(); vrender(); };
   $("#ct-delete").onclick = async () => {
     if (!confirm(`Retirer ${c.name} de ton cercle ? Les messages échangés seront effacés ici.`)) return;
     for (const m of await C.store.byContact("messages", c.id)) await C.store.del("messages", m.id);
