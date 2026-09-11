@@ -20,12 +20,18 @@ export class Link {
     const pc = this.pc = new RTCPeerConnection({ iceServers: Link.ice.length ? [{ urls: Link.ice }] : [] });
     // Les événements d'une ancienne connexion (fermée par teardown) arrivent après coup : on les ignore.
     pc.onicecandidate = (e) => { if (this.pc === pc && e.candidate && !this.manual) this.sendSignal({ t: "ice", c: e.candidate.toJSON() }); };
-    pc.onconnectionstatechange = () => { if (this.pc !== pc) return; this.onState(pc.connectionState); if (["failed", "closed"].includes(pc.connectionState)) this.teardown(); };
+    this.opened = false;
+    // Échange par codes jamais ouvert : un « failed » vient de l'attente du code (l'autre ne répond pas
+    // encore), pas d'un tunnel mort. On garde la connexion : elle aboutit dès que l'autre colle le code.
+    pc.onconnectionstatechange = () => {
+      if (this.pc !== pc) return; this.onState(pc.connectionState);
+      if (pc.connectionState === "closed" || (pc.connectionState === "failed" && !(this.manual && !this.opened))) this.teardown();
+    };
     pc.ondatachannel = (e) => { if (this.pc === pc) this.attach(e.channel); };
   }
   attach(dc) {
     this.dc = dc; dc.binaryType = "arraybuffer";
-    dc.onopen = () => { if (this.dc === dc) this.onState("open"); };
+    dc.onopen = () => { if (this.dc === dc) { this.opened = true; this.onState("open"); } };
     dc.onclose = () => { if (this.dc !== dc) return; this.onState("closed"); this.teardown(); };
     dc.onmessage = (ev) => { if (this.dc === dc) this.recv(ev.data); };
   }
@@ -49,7 +55,11 @@ export class Link {
   async answerCode(sdp) {
     this.teardown(); this.setup(); this.manual = true;
     await this.pc.setRemoteDescription({ type: "offer", sdp });
-    await this.pc.setLocalDescription(await this.pc.createAnswer());
+    // Rôle DTLS passif : on attend que l'autre colle notre code pour ouvrir la poignée de main. En rôle
+    // actif, le navigateur l'entame tout de suite et abandonne au bout d'une minute, avant que le code
+    // ait fait le trajet (SMS, messagerie…) : les deux restaient alors « en attente » pour toujours.
+    const ans = await this.pc.createAnswer();
+    await this.pc.setLocalDescription({ type: "answer", sdp: ans.sdp.replace(/a=setup:active/g, "a=setup:passive") });
     await this.gathered();
     return this.pc.localDescription.sdp;
   }

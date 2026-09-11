@@ -399,6 +399,7 @@ function newLink(cid) {
       const c = S.contacts.get(l.cid); if (!c) return;
       if (["closed", "failed", "disconnected"].includes(st)) S.presence.delete(c.id);   // tunnel mort = plus « en ligne » tant qu'un hello ne revient pas
       renderContacts(); if (S.active === c.id) renderChat();
+      if (st === "open" && c.pending) { c.pending = false; renderAll(); toast(`${c.name} est maintenant dans ton cercle`); pickCarriers(); }   // tunnel ouvert = l'autre a collé mon code
       if (st === "open") { l.polite = S.me.id > c.id; c.online = Date.now(); C.store.put("contacts", c); $("#invite").hidden = true; $("#code").hidden = true; setSteps(1); $("#invite-link").value = ""; S.presence.set(c.id, Date.now()); S.carrier.onOpen(c.id); if (S.pool.has("peer:" + c.id)) S.pool.get("peer:" + c.id).resub(); flushOutbox(); toast(`Connecté à ${c.name}`); }
     });
   return l;
@@ -526,8 +527,9 @@ async function acceptCode(text) {
     }
     S.pendingInvites.delete(env.i); S.links.get(id)?.teardown();
     p.link.cid = id; p.link.polite = S.me.id > id; S.links.set(id, p.link);
-    await p.link.acceptAnswer(env.a);
+    if (!(await p.link.acceptAnswer(env.a))) { renderAll(); openChat(id); toast(`Ton invitation a expiré de ton côté. Refais un lien et renvoie-le à ${c.name}.`, true); return true; }
     renderAll(); openChat(id); toast(`Connexion avec ${c.name}…`); pickCarriers();
+    setTimeout(() => { if (!p.link.open && S.links.get(id) === p.link) toast(`Toujours pas de connexion avec ${c.name}. Vos réseaux se bloquent peut-être (4G, Wi-Fi public ou d'entreprise) : essayez tous les deux sur le même Wi-Fi, puis refaites un lien.`, true); }, 30000);
   } catch { toast("Code illisible ou pas pour toi", true); }
   return true;
 }
