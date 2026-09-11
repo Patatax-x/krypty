@@ -214,11 +214,14 @@ main { display: flex; flex-direction: column; min-width: 0; background: var(--bg
 @keyframes pop { from { transform: translateY(6px) scale(.985); opacity: 0; } to { transform: none; opacity: 1; } }
 .modal h3:first-child { margin-top: 0; }
 .tabs { display: flex; gap: 4px; align-items: center; border-bottom: 1px solid var(--border); padding-bottom: 8px; margin-bottom: 6px; }
-.tab { background: transparent; border-color: transparent; color: var(--text-dim); font-weight: 600; padding: 6px 12px; border-radius: 8px; }
-.tab.active { background: var(--surface2); color: var(--text); }
+.tabs button.icon { width: 32px; height: 32px; font-size: 22px; margin-right: 2px; }
+.menu-sec { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+.eyebrow { font-size: 11px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--text-dim); padding: 0 2px; }
+.choice-go { margin-left: auto; font-size: 22px; color: var(--text-dim); line-height: 1; }
+.choice:hover .choice-go { color: var(--accent); }
+.menu-foot { text-align: center; margin: 14px 0 2px; }
 .tabpane { display: flex; flex-direction: column; gap: 6px; }
-.choice { width: 100%; text-align: left; background: var(--bg); border: 1px solid var(--border); border-radius: 14px; padding: 12px 14px; display: flex; align-items: center; gap: 12px; margin-top: 8px; justify-content: flex-start; }
-.choice:first-of-type { margin-top: 4px; }
+.choice { width: 100%; text-align: left; background: var(--bg); border: 1px solid var(--border); border-radius: 14px; padding: 12px 14px; display: flex; align-items: center; gap: 12px; justify-content: flex-start; }
 .choice:hover { border-color: var(--accent); background: var(--hover); }
 .choice-ic { width: 38px; height: 38px; border-radius: 11px; background: var(--accent-dim); color: var(--accent); font-size: 18px; font-weight: 700; display: grid; place-items: center; flex-shrink: 0; }
 .choice-txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; }

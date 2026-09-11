@@ -228,10 +228,17 @@ async function dispatch(c, env, via) {
   } else if (env.t === "group") {            // annonce ou mise à jour d'un groupe par son créateur
     const gi = env.g; if (!gi || typeof gi.id !== "string" || gi.id.length > 32 || !Array.isArray(gi.members)) return;
     const ex = S.groups.get(gi.id); if (ex && ex.creator !== c.id) return;
-    const ng = { ...(ex || { seen: Date.now(), unread: 0, last: "" }), id: gi.id, name: String(gi.name || "Groupe").slice(0, 40), color: typeof gi.color === "string" ? gi.color.slice(0, 9) : COLORS[1],
+    const photo = typeof gi.photo === "string" && gi.photo.length < 40000 && PHOTO_RE.test(gi.photo) ? gi.photo : null;
+    const ng = { ...(ex || { seen: Date.now(), unread: 0, last: "" }), id: gi.id, name: String(gi.name || "Groupe").slice(0, 40), color: typeof gi.color === "string" ? gi.color.slice(0, 9) : COLORS[1], photo,
       members: gi.members.filter(x => typeof x === "string" && x.length < 40).slice(0, 50), creator: c.id, created: Number(gi.created) || Date.now() };
     if (!ng.members.includes(S.me.id)) { if (ex) { S.groups.delete(gi.id); await C.store.del("groups", gi.id); if (S.active === gi.id) S.active = null; } }
-    else { S.groups.set(gi.id, ng); await C.store.put("groups", ng); if (!ex) toast(`${c.name} t'a ajouté au groupe « ${ng.name} »`); else if (ex.members.length !== ng.members.length) sysMsg(ng, "Membres mis à jour par " + c.name); }
+    else {
+      S.groups.set(gi.id, ng); await C.store.put("groups", ng);
+      if (!ex) toast(`${c.name} t'a ajouté au groupe « ${ng.name} »`);
+      else if (ex.members.length !== ng.members.length) sysMsg(ng, "Membres mis à jour par " + c.name);
+      else if (ex.name !== ng.name) sysMsg(ng, `${c.name} a renommé le groupe « ${ng.name} »`);
+      else if (ex.photo !== ng.photo) sysMsg(ng, `${c.name} a changé la photo du groupe`);
+    }
     sendTo(c, { t: "ack", ids: [env.id] }); renderAll();
   } else if (env.t === "gleave") {
     const gg = S.groups.get(String(env.g || ""));
@@ -505,8 +512,9 @@ async function present(a, b) {
   await sendReliable(a, { t: "present", by: S.me.name, mybox: boxA, cards: [cardOf(b, boxB)] });
   await sendReliable(b, { t: "present", by: S.me.name, mybox: boxB, cards: [cardOf(a, boxA)] });
 }
+const groupEnv = (g) => ({ id: g.id, name: g.name, color: g.color, photo: g.photo || null, members: g.members, creator: g.creator, created: g.created });
 async function createGroup(name, memberIds) {
-  const g = { id: C.uid(), name, color: COLORS[Math.floor(Math.random() * COLORS.length)], members: [S.me.id, ...memberIds], creator: S.me.id, created: Date.now(), seen: Date.now(), last: "", unread: 0 };
+  const g = { id: C.uid(), name, color: COLORS[Math.floor(Math.random() * COLORS.length)], photo: null, members: [S.me.id, ...memberIds], creator: S.me.id, created: Date.now(), seen: Date.now(), last: "", unread: 0 };
   S.groups.set(g.id, g); await C.store.put("groups", g);
   await announceGroup(g, memberIds); renderAll(); openChat(g.id);
 }
@@ -519,11 +527,17 @@ async function addToGroup(g, memberIds) {
 // Tous les membres reçoivent le groupe ; chaque nouveau membre est présenté à chacun des autres.
 async function announceGroup(g, newIds) {
   const members = memberContacts(g);
-  for (const m of members) await sendReliable(m, { t: "group", g: { id: g.id, name: g.name, color: g.color, members: g.members, creator: g.creator, created: g.created } });
+  for (const m of members) await sendReliable(m, { t: "group", g: groupEnv(g) });
   for (const nid of newIds) for (const m of members) if (m.id !== nid) { const n = S.contacts.get(nid); if (n) await present(n, m); }
 }
+// Nom, couleur, photo : réservés au créateur, comme les membres. Chaque membre reçoit la nouvelle version.
+async function updateGroup(g, patch) {
+  Object.assign(g, patch); await C.store.put("groups", g);
+  for (const m of memberContacts(g)) await sendReliable(m, { t: "group", g: groupEnv(g) });
+  renderAll();
+}
 async function leaveGroup(g) {
-  for (const m of memberContacts(g)) await sendReliable(m, g.creator === S.me.id ? { t: "group", g: { id: g.id, name: g.name, color: g.color, members: g.members.filter(x => x !== S.me.id), creator: g.creator, created: g.created } } : { t: "gleave", g: g.id });
+  for (const m of memberContacts(g)) await sendReliable(m, g.creator === S.me.id ? { t: "group", g: groupEnv({ ...g, members: g.members.filter(x => x !== S.me.id) }) } : { t: "gleave", g: g.id });
   for (const m of await C.store.byContact("messages", g.id)) await C.store.del("messages", m.id);
   S.groups.delete(g.id); await C.store.del("groups", g.id); if (S.active === g.id) S.active = null; renderAll();
 }
@@ -553,14 +567,27 @@ function openGroupModal(g = null) {
     $("#group").hidden = true; if (g) await addToGroup(g, ids); else await createGroup(name.slice(0, 40), ids);
   };
 }
+let _gcard = null;
 function openGroupCard(g) {
-  $("#gcard").hidden = false; $("#gc-name").textContent = g.name; setAv($("#gc-av"), { name: g.name, color: g.color });
+  _gcard = g; const mine = g.creator === S.me.id;
+  $("#gcard").hidden = false; $("#gc-name").textContent = g.name; setAv($("#gc-av"), g);
+  $("#gc-av").classList.toggle("photo", mine); $("#gc-av").title = mine ? "Changer la photo du groupe" : "";
+  $("#gc-edit").hidden = !mine; $("#gc-photo-rm").hidden = !(mine && g.photo);
+  if (mine) {
+    swatches($("#gc-colors"), g.color, (col) => updateGroup(g, { color: col }));
+    $("#gc-rename").onclick = async () => {
+      const name = $("#gc-rename-in").value.trim().slice(0, 40); if (!name || name === g.name) return;
+      await updateGroup(g, { name }); await sysMsg(g, `Groupe renommé « ${name} »`); $("#gc-name").textContent = name; toast("Groupe renommé");
+    };
+    $("#gc-rename-in").value = g.name; $("#gc-rename-in").onkeydown = (e) => { if (e.key === "Enter") $("#gc-rename").click(); };
+    $("#gc-photo-rm").onclick = async () => { await updateGroup(g, { photo: null }); setAv($("#gc-av"), g); $("#gc-photo-rm").hidden = true; };
+  }
   const ms = memberContacts(g), on = ms.filter(isOnline).length;
   $("#gc-state").textContent = `${g.members.length} membres · ${on} en ligne` + (g.creator === S.me.id ? " · créé par toi" : ` · créé par ${S.contacts.get(g.creator)?.name || "un membre parti"}`);
   const rows = [[`<i>🟢</i><span>Toi</span>`]].concat(ms.map(c => [`<i>${statusOf(c).k === "off" ? "🌙" : "🟢"}</i><span>${esc(c.name)} <span class="trust">${statusOf(c).t}${c.verified ? " · vérifié" : c.trust === "presented" ? " · présenté par " + esc(c.via || "") : ""}</span></span>`]))
     .concat(g.members.filter(id => id !== S.me.id && !S.contacts.has(id)).map(() => [`<i>❔</i><span>Un membre que tu ne connais pas encore <span class="trust">(présentation en attente)</span></span>`]));
   $("#gc-members").innerHTML = rows.map(r => `<li>${r[0]}</li>`).join("");
-  $("#gc-add").hidden = g.creator !== S.me.id;
+  $("#gc-add").hidden = !mine;
   $("#gc-add").onclick = () => { $("#gcard").hidden = true; openGroupModal(g); };
   $("#gc-leave").onclick = async () => { if (confirm(`Quitter « ${g.name} » ? Les messages du groupe seront effacés ici.`)) { $("#gcard").hidden = true; await leaveGroup(g); } };
 }
@@ -636,7 +663,7 @@ function renderContacts() {
   const ul = $("#contacts"); ul.innerHTML = "";
   const q = ($("#search").value || "").trim().toLowerCase();
   const list = [...S.contacts.values(), ...S.groups.values()].filter(c => !q || c.name.toLowerCase().includes(q)).sort((a, b) => (b.seen || 0) - (a.seen || 0));
-  if (!S.contacts.size) ul.innerHTML = `<li class="empty">Personne encore.<br>Le bouton <b>＋ Inviter</b> crée un lien à envoyer.</li>`;
+  if (!S.contacts.size) ul.innerHTML = `<li class="empty">Personne encore.<br>Le bouton <b>＋ Nouveau</b> crée un lien à envoyer.</li>`;
   else if (!list.length) ul.innerHTML = `<li class="empty">Aucun contact ne correspond.</li>`;
   for (const c of list) {
     const li = document.createElement("li"); li.className = "contact" + (S.active === c.id ? " active" : "") + (c.unread ? " unread" : "");
@@ -652,7 +679,7 @@ function renderContacts() {
   const carriersOn = S.carriers.filter(cid => S.links.get(cid)?.open).length, ws = S.pool && S.pool.wsOpen();
   const ok = ws || carriersOn > 0;
   $("#relay-dot").className = "dot" + (ok ? " on" : "");
-  $("#relay-txt").textContent = ok ? "Prêt" : S.contacts.size ? "Hors ligne : connecte-toi à un contact" : "Ajoute un contact pour commencer";
+  $("#relay-txt").textContent = ok ? "Prêt" : S.contacts.size ? "Hors ligne : tes messages partiront au retour d'un contact" : "Ajoute un contact pour commencer";
   $("#side-foot").title = ok ? "Tes messages en attente sont gardés chiffrés" + (carriersOn ? " par " + S.carriers.filter(cid => S.links.get(cid)?.open).map(cid => S.contacts.get(cid)?.name).join(", ") : " par un point de rendez-vous") : "";
   // Rappel de sauvegarde : dès qu'il y a quelque chose à perdre, jusqu'à la première sauvegarde (ou « plus tard » : une semaine)
   let later = 0; try { later = Number(localStorage.getItem("nudgeLater")) || 0; } catch {}
@@ -774,9 +801,10 @@ async function handlePasted(v) {
   if (i >= 0) { await acceptInvite(v.slice(i + 3).split(/\s/)[0]); return true; }
   return acceptCode(v);
 }
+// Une seule chose à la fois : on arrive ici depuis « Nouveau » avec un choix précis, pas d'onglet vers l'autre.
 function openInvite(tab) {
   $("#invite").hidden = false;
-  $$(".tab").forEach(t => { t.classList.toggle("active", t.dataset.tab === tab); t.setAttribute("aria-selected", String(t.dataset.tab === tab)); });
+  $("#invite-title").textContent = tab === "inv-join" ? "J'ai reçu un lien ou un code" : "Relier quelqu'un";
   $("#inv-make").hidden = tab !== "inv-make"; $("#inv-join").hidden = tab !== "inv-join";
   if (tab === "inv-make" && !$("#invite-link").value) { setSteps(1); $("#invite-new").click(); }
   $("#invite-share").hidden = !navigator.share;
@@ -883,7 +911,14 @@ $("#newmenu-group").onclick = () => {
   if (![...S.contacts.values()].some(c => !c.pending)) { toast("Relie d'abord une personne : un groupe se crée à partir de ton cercle", true); return; }
   openGroupModal();
 };
-$$(".tab").forEach(t => t.onclick = () => openInvite(t.dataset.tab));
+$("#invite-back").onclick = () => { $("#invite").hidden = true; openNewMenu(); };
+$("#gc-photo-file").onchange = async (e) => {
+  const f = e.target.files[0]; e.target.value = "";
+  const g = _gcard; if (!f || !g || g.creator !== S.me.id) return;
+  try { await updateGroup(g, { photo: await C.resizePhoto(f) }); setAv($("#gc-av"), g); $("#gc-photo-rm").hidden = false; await sysMsg(g, "Photo du groupe changée"); }
+  catch { toast("Image illisible", true); }
+};
+$("#gc-av").onclick = (e) => { if (!_gcard || _gcard.creator !== S.me.id) e.preventDefault(); };
 $("#invite-close").onclick = () => $("#invite").hidden = true;
 $("#invite-new").onclick = async () => {
   for (const [i, p] of S.pendingInvites) { p.link.teardown(); S.pendingInvites.delete(i); }   // une seule offre vivante à la fois
