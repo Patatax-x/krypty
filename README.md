@@ -27,8 +27,10 @@ Application : https://patatax-x.github.io/krypty/web/ · Documentation : https:/
 | Point de rendez-vous (`relay.py`, facultatif) | Même chose, chez un membre du cercle qui veut bien lancer un script | Ids de boîtes, blobs chiffrés, horaires |
 
 - **Codes** : une offre WebRTC complète tient en ~900 caractères une fois compressée. Le lien d'invitation
-  en contient une ; la réponse en est une autre, scellée pour l'inviteur. Pour se reconnecter plus tard :
-  « Se connecter » donne un code, l'autre renvoie le sien. Les deux doivent être en ligne.
+  en contient une ; la réponse en est une autre, scellée pour l'inviteur. Pour se reconnecter plus tard sans
+  contact commun en ligne, un simple nouveau lien d'invitation suffit : envoyé à quelqu'un déjà dans le
+  cercle, il rouvre directement un tunnel au lieu de proposer un nouvel ajout. Un seul mécanisme, une
+  seule case « ＋ Nouveau ».
 - **Cercle** : une fois relié à un contact, il transmet la signalisation vers vos contacts communs, et il
   garde vos messages quand vous êtes absent. Les porteurs sont vos deux contacts les plus récents, choisis
   automatiquement. Un message a un identifiant ; la première copie compte, les autres sont jetées.

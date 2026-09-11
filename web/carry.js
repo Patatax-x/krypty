@@ -38,6 +38,12 @@ export class Carrier {
       if (rec && this.owners.get(rec.box) === cid) await store.del("carry", rec.id);
     }
   }
+  // Boîte d'un contact chez moi, créée si besoin : sert à présenter deux contacts (chacun écrit à l'autre chez moi).
+  async boxFor(cid) {
+    await this.ready;
+    for (const [box, o] of this.owners) if (o === cid) return box;
+    const box = uid() + uid(); this.owners.set(box, cid); await this.save(); return box;
+  }
   async deliver(cid, box) {
     for (const b of await store.all("carry")) if (b.box === box) this.send(cid, { __box: "msg", box: b.box, mid: b.id, blob: b.blob });
   }

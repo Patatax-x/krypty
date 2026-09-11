@@ -55,19 +55,20 @@ export async function tagOf(pubRaw) { return b64u.enc((await sha256(pubRaw)).sli
 
 // ── Stockage local (IndexedDB) ────────────────────────────────────────────────────
 // Tables : kv (identité, réglages), contacts, messages (par contact), outbox (à livrer).
-export const DB = "krypty2-v2", VER = 1;
+export const DB = "krypty2-v2", VER = 2;
 let _db;
 export function db() {
   if (_db) return Promise.resolve(_db);
   return new Promise((res, rej) => {
     const r = indexedDB.open(DB, VER);
     r.onupgradeneeded = () => {
-      const d = r.result;
-      d.createObjectStore("kv");
-      d.createObjectStore("contacts", { keyPath: "id" });
-      const m = d.createObjectStore("messages", { keyPath: "id" }); m.createIndex("byContact", "contact");
-      d.createObjectStore("outbox", { keyPath: "id" }).createIndex("byContact", "contact");
-      d.createObjectStore("carry", { keyPath: "id" });    // blobs portés pour des tiers
+      const d = r.result, has = (n) => d.objectStoreNames.contains(n);
+      if (!has("kv")) d.createObjectStore("kv");
+      if (!has("contacts")) d.createObjectStore("contacts", { keyPath: "id" });
+      if (!has("messages")) d.createObjectStore("messages", { keyPath: "id" }).createIndex("byContact", "contact");
+      if (!has("outbox")) d.createObjectStore("outbox", { keyPath: "id" }).createIndex("byContact", "contact");
+      if (!has("carry")) d.createObjectStore("carry", { keyPath: "id" });    // blobs portés pour des tiers
+      if (!has("groups")) d.createObjectStore("groups", { keyPath: "id" });  // v2
     };
     r.onsuccess = () => { _db = r.result; _db.onversionchange = () => { _db.close(); _db = null; }; res(_db); };   // un autre document efface : on lâche, sinon tout le monde attend
     r.onerror = () => rej(r.error);
@@ -116,7 +117,7 @@ async function passKey(pass, salt) {
 }
 export async function exportBackup(pass) {
   const data = { v: 1, at: Date.now(), me: await kv.get("me"), relays: await kv.get("relays"), welcome: await kv.get("welcome"),
-    contacts: await store.all("contacts"), messages: (await store.all("messages")).map(m => { const { blob, ...r } = m; return r; }) };
+    contacts: await store.all("contacts"), groups: await store.all("groups"), messages: (await store.all("messages")).map(m => { const { blob, ...r } = m; return r; }) };
   const salt = rand(16), iv = rand(12), key = await passKey(pass, salt);
   const ct = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, te.encode(JSON.stringify(data))));
   return new Blob([te.encode("KRYPTY2"), salt, iv, ct], { type: "application/octet-stream" });
@@ -129,6 +130,7 @@ export async function importBackup(file, pass) {
   if (!data.me || !data.me.x) throw new Error("bad-format");
   await kv.set("me", data.me); if (data.relays) await kv.set("relays", data.relays); if (data.welcome) await kv.set("welcome", data.welcome);
   for (const c of data.contacts || []) await store.put("contacts", c);
+  for (const g of data.groups || []) await store.put("groups", g);
   for (const m of data.messages || []) if (!(await store.get("messages", m.id))) await store.put("messages", m);
 }
 export function wipe() { return new Promise((res) => { if (_db) _db.close(); _db = null; const r = indexedDB.deleteDatabase(DB); r.onsuccess = r.onerror = () => res(); setTimeout(res, 3000); }); }   // onblocked : la suppression finit dès que l'autre connexion lâche
@@ -136,10 +138,12 @@ export function wipe() { return new Promise((res) => { if (_db) _db.close(); _db
 // ── Empreinte de vérification lisible : 5 emojis dérivés des deux clés publiques (ordre indépendant) ──
 const EMO = ["🍎","🍋","🍇","🍓","🥝","🌶️","🥑","🍄","🌵","🌻","🌙","⭐","🔥","💧","🌈","❄️","🐶","🐱","🐭","🦊","🐻","🐼","🐨","🐸","🐙","🦋","🐢","🦉","🐝","🦄","🐬","🦀",
              "⚽","🎸","🎲","🎯","🎁","🎈","🔑","🔔","💎","🧲","🧭","⏰","🚀","✈️","⛵","🚲","🏠","⛺","🗿","🎪","🍕","🍩","🍪","🧁","☕","🍵","🧊","🍯","📚","✏️","📎","🧩"];
-export async function emojiFingerprint(pubA, pubB) {
+// 5 symboles à comparer à l'écran, et 6 chiffres à lire au téléphone. Même hachage.
+export async function fingerprint(pubA, pubB) {
   const [a, b] = [b64u.enc(pubA), b64u.enc(pubB)].sort();
   const h = await sha256(te.encode("emoji|" + a + "|" + b));
-  return [0, 1, 2, 3, 4].map(i => EMO[h[i] % 64]).join(" ");
+  const n = ((h[5] << 16) | (h[6] << 8) | h[7]) % 1000000;
+  return { emoji: [0, 1, 2, 3, 4].map(i => EMO[h[i] % 64]).join(" "), digits: String(n).padStart(6, "0").replace(/(\d{2})(?=\d)/g, "$1 ") };
 }
 // Photo de profil : carré 96 px, JPEG ~4 Ko → tient dans un blob porté par un contact, envoyée chiffrée
 export function resizePhoto(file, size = 96) {

@@ -68,7 +68,7 @@
         <span class="av" id="me-av">?</span>
         <span class="me-txt"><b id="me-name">&nbsp;</b><small>Réglages · sauvegarde</small></span>
       </button>
-      <button id="btn-invite" class="primary small" title="Inviter quelqu'un dans ton cercle">＋ Inviter</button>
+      <button id="btn-new" class="primary small" title="Relier quelqu'un ou créer un groupe">＋ Nouveau</button>
     </header>
     <div class="search"><input id="search" placeholder="Rechercher un contact" autocomplete="off"></div>
     <ul id="contacts" aria-label="Contacts"></ul>
@@ -86,10 +86,9 @@
     <div id="chat-empty" class="empty-main">
       <div class="ob-logo small" aria-hidden="true">K</div>
       <h2>Ton cercle est vide</h2>
-      <p>Invite quelqu'un : envoie-lui un lien, elle ou il te renvoie un code, et vous êtes reliés en direct. Aucun serveur entre vous, personne ne sait que vous vous parlez.</p>
+      <p>Relie quelqu'un ou crée un groupe : aucun serveur entre vous, personne ne sait que vous vous parlez.</p>
       <div class="row center">
-        <button class="primary" id="empty-invite">＋ Créer une invitation</button>
-        <button id="empty-join">Coller un lien reçu</button>
+        <button class="primary big" id="empty-new">＋ Nouveau</button>
       </div>
     </div>
     <div id="chat-view" hidden>
@@ -99,7 +98,6 @@
           <span class="av" id="chat-av">?</span>
           <div class="chat-title"><b id="chat-title">&nbsp;</b><span id="chat-sub" class="mini">&nbsp;</span></div>
         </button>
-        <button id="btn-connect" class="small primary" hidden>Se connecter</button>
         <span id="chat-pill" class="pill"></span>
       </header>
       <div id="messages"></div>
@@ -118,6 +116,25 @@
       </footer>
     </div>
   </main>
+
+  <!-- Nouveau : choisir entre relier une personne ou créer un groupe -->
+  <div id="newmenu" class="modal" hidden>
+    <div class="box">
+      <div class="tabs"><b class="grow">Nouveau</b><button class="x" id="newmenu-close" aria-label="Fermer">✕</button></div>
+      <button class="choice" id="newmenu-person">
+        <span class="choice-ic">＋</span>
+        <span class="choice-txt"><b>Relier quelqu'un</b><span class="mini">Un lien à envoyer, un code en retour. Direct, chiffré, sans serveur.</span></span>
+      </button>
+      <button class="choice" id="newmenu-group">
+        <span class="choice-ic">👥</span>
+        <span class="choice-txt"><b>Créer un groupe</b><span class="mini">Choisis des contacts déjà reliés. Ils se présentent entre eux automatiquement.</span></span>
+      </button>
+      <button class="choice" id="newmenu-paste">
+        <span class="choice-ic">📋</span>
+        <span class="choice-txt"><b>J'ai reçu un lien ou un code</b><span class="mini">Colle-le pour rejoindre quelqu'un.</span></span>
+      </button>
+    </div>
+  </div>
 
   <!-- Inviter / Rejoindre -->
   <div id="invite" class="modal" hidden>
@@ -142,7 +159,7 @@
       </div>
       <div id="inv-join" class="tabpane" hidden>
         <p class="mini">Colle un lien d'invitation ou un code. Astuce : dans Krypty, Ctrl+V n'importe où fait la même chose.</p>
-        <textarea id="paste" rows="4" placeholder="https://…/#i/…   ou   KR…  KC…  KA…"></textarea>
+        <textarea id="paste" rows="4" placeholder="https://…/#i/…   ou   KR…"></textarea>
         <div class="row"><button class="primary" id="paste-go">Valider</button></div>
       </div>
     </div>
@@ -176,11 +193,46 @@
       <h3>Comment vous êtes reliés</h3>
       <ul class="facts" id="ct-how"></ul>
       <h3>Vérification</h3>
-      <p class="mini">Ces 5 symboles sont calculés à partir de vos deux clés. S'ils sont identiques chez lui, personne ne s'est glissé entre vous.</p>
+      <p class="mini">Calculés à partir de vos deux clés, identiques chez vous deux si personne ne s'est glissé entre vous. À comparer une fois : à l'écran (symboles) ou au téléphone (chiffres).</p>
       <div class="emo" id="ct-emo">&nbsp;</div>
-      <div class="row"><button class="small" id="ct-verify">Nous avons comparé, c'est identique</button><span class="mini" id="ct-verified"></span></div>
+      <div class="digits" id="ct-digits">&nbsp;</div>
+      <div class="row"><button class="small" id="ct-verify">C'est identique</button><span class="mini" id="ct-verified"></span></div>
       <h3>Actions</h3>
-      <div class="row wrap"><button class="small" id="ct-rename">Renommer chez moi</button><button class="small danger" id="ct-delete">Retirer du cercle</button></div>
+      <div class="row wrap"><button class="small" id="ct-present">Présenter à…</button><button class="small" id="ct-rename">Renommer chez moi</button><button class="small danger" id="ct-delete">Retirer du cercle</button></div>
+    </div>
+  </div>
+
+  <!-- Présenter un contact à d'autres -->
+  <div id="present" class="modal" hidden>
+    <div class="box">
+      <div class="tabs"><b class="grow" id="present-title">Présenter</b><button class="x" id="present-close" aria-label="Fermer">✕</button></div>
+      <p class="mini">Chacun recevra la carte de l'autre, et ils se relieront en direct dès qu'ils seront en ligne en même temps, sans lien ni code. Toi seul vois qu'ils sont reliés.</p>
+      <ul class="picklist" id="present-list"></ul>
+      <div class="row"><button class="primary" id="present-go">Présenter</button></div>
+    </div>
+  </div>
+
+  <!-- Groupe : créer ou ajouter des membres -->
+  <div id="group" class="modal" hidden>
+    <div class="box">
+      <div class="tabs"><b class="grow" id="group-title">Nouveau groupe</b><button class="x" id="group-close" aria-label="Fermer">✕</button></div>
+      <input id="group-name" maxlength="40" placeholder="Nom du groupe" autocomplete="off">
+      <p class="mini" id="group-hint">Choisis des membres parmi tes contacts. Ils seront présentés les uns aux autres : chacun parle à chacun en direct, chiffré par paire. Rien ne passe par un serveur.</p>
+      <ul class="picklist" id="group-list"></ul>
+      <div class="row"><button class="primary" id="group-go">Créer</button></div>
+    </div>
+  </div>
+
+  <!-- Fiche de groupe -->
+  <div id="gcard" class="modal" hidden>
+    <div class="box">
+      <div class="tabs"><b class="grow">Groupe</b><button class="x" id="gc-close" aria-label="Fermer">✕</button></div>
+      <div class="who-big"><span class="av big" id="gc-av">?</span><div class="grow"><b id="gc-name">&nbsp;</b><div class="mini" id="gc-state">&nbsp;</div></div></div>
+      <h3>Membres</h3>
+      <ul class="facts" id="gc-members"></ul>
+      <p class="mini">Chaque message est chiffré séparément pour chaque membre. Un membre absent le reçoit par ses porteurs, comme un message normal.</p>
+      <h3>Actions</h3>
+      <div class="row wrap"><button class="small" id="gc-add">Ajouter des membres</button><button class="small danger" id="gc-leave">Quitter le groupe</button></div>
     </div>
   </div>
 

@@ -42,4 +42,4 @@ l'app fonctionne entièrement par codes et par le cercle, et c'est le cas nomina
 
 1. `https://patatax-x.github.io/krypty/web/` dans deux navigateurs.
 2. Inviter sur A (lien ou QR), ouvrir sur B, choisir un nom, Ajouter, copier le code de réponse, le coller sur A. ⚡ en direct.
-3. Fermer les deux, rouvrir, « Se connecter » sur A, coller sur B, recoller la réponse sur A.
+3. Fermer les deux, rouvrir, renvoyer un nouveau lien d'invitation sur A à B (déjà dans son cercle) : code de réponse, ⚡ en direct de nouveau.
